@@ -15,7 +15,7 @@ const App = () => {
       <Routes>
         {/* <Route path="/" element={<Home />} /> */}
         {/* 위에 코드는 로그인 후 보게 될 싱크용 폴더 선택 확인용 */}
-        <Route path="/" element={<Login />} />
+        <Route path="" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/home" element={<Home />} />
       </Routes>
