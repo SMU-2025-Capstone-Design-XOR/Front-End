@@ -134,3 +134,16 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+
+
+# Electron 빌드 관련 폴더
+dist/
+out/
+build/
+
+
+# Mac 시스템 파일 (불필요)
+.DS_Store
+
+# VSCode 관련 파일
+.vscode/
