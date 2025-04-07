@@ -1,6 +1,6 @@
 // src/pages/Home.jsx
 import React, { useState, useEffect } from 'react';
-import '../styles.css';
+import '../auth.css';
 import { sendSyncFolder, backupFile } from '../apiService';
 
 // nodeIntegration 활성화되어 있으므로, window.require 사용

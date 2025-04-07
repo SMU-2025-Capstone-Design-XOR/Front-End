@@ -6,7 +6,7 @@ import { HashRouter as Router, Routes, Route } from 'react-router-dom';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Home from './pages/Home';
-import './styles.css';
+import './auth.css';
 
 const App = () => {
   console.log('App loaded');
