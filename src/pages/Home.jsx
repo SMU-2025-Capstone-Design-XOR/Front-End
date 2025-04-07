@@ -18,24 +18,37 @@ const Home = () => {
   const checkAuth = async () => {
     const token = localStorage.getItem('token');
     try {
-      const response = await fetch('http://localhost:8080/auth/protected', {
+      const response = await fetch('http://15.164.33.175:8080/auth/protected', {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
+      
+      // 응답의 Content-Type 확인
+      const contentType = response.headers.get('content-type');
+      let data;
+      if (contentType && contentType.includes('application/json')) {
+        data = await response.json();
+      } else {
+        // JSON이 아닌 경우 텍스트로 응답을 받아서 에러 처리
+        data = await response.text();
+        throw new Error(`인증 실패: ${data}`);
+      }
+      
       if (!response.ok) {
         throw new Error('인증 실패');
       }
-      const data = await response.json();
+      
       console.log('보호된 API 응답:', data);
       setAuthStatus('인증 성공');
     } catch (error) {
       console.error('보호된 API 호출 에러:', error);
       setAuthStatus('인증 실패');
-      // 필요하면 인증 실패 시 로그인 화면으로 리다이렉트 처리
+      // 필요 시, 로그인 화면으로 리다이렉트하는 등의 추가 처리를 할 수 있습니다.
     }
   };
+  
 
   // 폴더 선택 함수
   const handleSelectFolder = async () => {

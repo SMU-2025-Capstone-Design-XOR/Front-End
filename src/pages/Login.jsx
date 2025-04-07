@@ -12,20 +12,36 @@ const Login = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const response = await fetch('http://localhost:8080/auth/login', {
+      const response = await fetch('http://15.164.33.175:8080/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })
       });
+
       if (!response.ok) throw new Error('로그인 실패');
       const data = await response.json();
-      // data.token 이 JWT라고 가정
-      localStorage.setItem('token', data.token);
-      alert('로그인 성공!');
-      navigate('/home');
+
+      
+      // ✅ JWT 토큰 저장
+      if (data.token) {
+        localStorage.setItem('token', data.token);
+        alert('로그인 성공!');
+        navigate('/home');
+      } else {
+        throw new Error('토큰이 없습니다');
+      }
     } catch (error) {
+      console.error('로그인 에러:', error);
       alert('로그인 실패. 다시 시도하세요.');
     }
+
+    //   // data.token 이 JWT라고 가정
+    //   localStorage.setItem('token', data.token);
+    //   alert('로그인 성공!');
+    //   navigate('/home');
+    // } catch (error) {
+    //   alert('로그인 실패. 다시 시도하세요.');
+    // }
   };
 
   return (
