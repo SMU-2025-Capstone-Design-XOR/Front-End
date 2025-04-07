@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import '../auth.css';
+import '../css/auth.css';
 
 const Login = () => {
   const [username, setUsername] = useState('');
@@ -21,11 +21,11 @@ const Login = () => {
       if (!response.ok) throw new Error('로그인 실패');
       const data = await response.json();
 
-      
-      // ✅ JWT 토큰 저장
+      // JWT 토큰 저장
       if (data.token) {
         localStorage.setItem('token', data.token);
         alert('로그인 성공!');
+        // console.log(data.token);
         navigate('/home');
       } else {
         throw new Error('토큰이 없습니다');
@@ -35,13 +35,6 @@ const Login = () => {
       alert('로그인 실패. 다시 시도하세요.');
     }
 
-    //   // data.token 이 JWT라고 가정
-    //   localStorage.setItem('token', data.token);
-    //   alert('로그인 성공!');
-    //   navigate('/home');
-    // } catch (error) {
-    //   alert('로그인 실패. 다시 시도하세요.');
-    // }
   };
 
   return (
