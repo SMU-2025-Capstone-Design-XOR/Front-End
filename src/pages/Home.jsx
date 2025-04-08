@@ -1,6 +1,7 @@
 // src/pages/Home.jsx
 import React, { useState, useEffect } from 'react';
-import '../css/auth.css';
+import { useNavigate } from 'react-router-dom';
+import '../css/home.css';
 import { sendSyncFolder, backupFile, downloadBackupFile } from '../apiService';
 
 // nodeIntegration 활성화되어 있으므로, window.require 사용
@@ -8,33 +9,39 @@ const chokidar = window.require('chokidar');
 const fs = window.require('fs');
 
 const Home = () => {
-  const [folderPath, setFolderPath] = useState('');
-  // syncFolder가 이미 지정되어 있다면 localStorage에서 가져오기
-  // const [folderPath, setFolderPath] = useState(localStorage.getItem('syncFolder') || '');
+  // 임시로 localStorage에 저장된 syncFolder를 사용자별로 분리하는 방법:
+  // 예를 들어, 현재 로그인한 사용자의 이름을 localStorage에서 "currentUser" 키로 저장한다고 가정.
+  const currentUser = localStorage.getItem('currentUser') || 'default';
+  const localKey = `syncFolder_${currentUser}`;
+  const [folderPath, setFolderPath] = useState(localStorage.getItem(localKey) || '');
   const [fileStatuses, setFileStatuses] = useState([]);
 
+  const navigate = useNavigate();
   const { ipcRenderer } = window.require('electron');
 
-
-  // 폴더 선택 함수: 최초로 폴더를 선택하면 서버에 저장하고 localStorage에도 저장하여 반복 요청을 피함
+  // 폴더 선택 함수: 항상 폴더 선택 다이얼로그를 호출하여 사용자가 언제든지 폴더를 변경할 수 있도록 함
   const handleSelectFolder = async () => {
-    if (!folderPath) {
-      const selectedFolder = await ipcRenderer.invoke('open-folder-dialog');
-      if (selectedFolder) {
-        setFolderPath(selectedFolder);
-        // 로컬에도 저장
-        localStorage.setItem('syncFolder', selectedFolder);
-        console.log('선택된 폴더:', selectedFolder);
-        try {
-          const result = await sendSyncFolder(selectedFolder);
-          console.log('폴더 전송 성공:', result);
-        } catch (error) {
-          console.error('폴더 전송 에러:', error);
-        }
+    const selectedFolder = await ipcRenderer.invoke('open-folder-dialog');
+    if (selectedFolder) {
+      setFolderPath(selectedFolder);
+      // 계정별 키로 localStorage에 저장
+      localStorage.setItem(localKey, selectedFolder);
+      console.log('새로 선택된 폴더:', selectedFolder);
+      try {
+        const result = await sendSyncFolder(selectedFolder);
+        console.log('폴더 전송 성공:', result);
+      } catch (error) {
+        console.error('폴더 전송 에러:', error);
       }
-    } else {
-      console.log('이미 지정된 폴더 사용:', folderPath);
     }
+  };
+
+  // 로그아웃 함수: JWT 토큰과 계정 관련 정보를 모두 제거하고, 로그인 페이지로 이동
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('currentUser');
+    // localStorage.removeItem(localKey);
+    navigate('/');
   };
 
   // 파일별 상태 업데이트 함수 (배열로 관리)
@@ -51,26 +58,22 @@ const Home = () => {
     });
   };
 
-  // folderPath가 설정되면, 해당 폴더 내의 .txt 파일을 감시
+  // folderPath가 설정되면, 해당 폴더 내의 .txt 파일을 감시 (서브폴더 제외)
   useEffect(() => {
     if (folderPath) {
-      // const watcher = chokidar.watch(`${folderPath}/**/*.txt`, {
-      //   persistent: true,
-      //   ignoreInitial: true
-      // });
-      
-      // 변경: 서브폴더 제외 -> `${folderPath}/*.txt`
       const watcher = chokidar.watch(`${folderPath}/*.txt`, {
         persistent: true,
         ignoreInitial: true
-      });      
+      });
       
       watcher.on('change', async (filePath) => {
         console.log(`변경 감지: ${filePath}`);
         updateFileStatus(filePath, '백업 중...');
         try {
           const content = fs.readFileSync(filePath, 'utf8');
-          const result = await backupFile({ filePath, content });
+          // 단일 버전으로 덮어쓰기
+          const backupData = { filePath, content };
+          const result = await backupFile(backupData);
           console.log('백업 성공:', result);
           updateFileStatus(filePath, '백업 성공');
         } catch (error) {
@@ -83,15 +86,14 @@ const Home = () => {
     }
   }, [folderPath]);
 
-  // 추가로, 백업 파일 다운로드(검증) 기능 예시:
+  // 백업 파일 다운로드(검증) 기능
   const handleDownloadBackup = async (filePath) => {
     try {
       const blob = await downloadBackupFile(filePath);
-      // Blob URL 생성 후 다운로드 링크 클릭
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = filePath.split('/').pop(); // 파일명 추출
+      a.download = filePath.split('/').pop();
       a.click();
       window.URL.revokeObjectURL(url);
     } catch (error) {
@@ -100,11 +102,12 @@ const Home = () => {
     }
   };
 
-
   return (
-    <div className="auth-container">
-      <div className="auth-box">
+    <div>
+      <div>
         <h1>HOME</h1>
+        {/* 로그아웃 버튼 추가 */}
+        <button onClick={handleLogout}>로그아웃</button>
         <button onClick={handleSelectFolder}>싱크용 폴더 선택</button>
         {folderPath && <p>선택된 폴더: {folderPath}</p>}
         {fileStatuses.length > 0 && (
@@ -114,7 +117,6 @@ const Home = () => {
               {fileStatuses.map((item) => (
                 <li key={item.filePath}>
                   <strong>{item.filePath}</strong>: {item.status}{' '}
-                  {/* 검증: 백업 파일 다운로드 버튼 */}
                   <button onClick={() => handleDownloadBackup(item.filePath)}>다운로드 확인</button>
                 </li>
               ))}
@@ -125,6 +127,7 @@ const Home = () => {
     </div>
   );
 };
+
 export default Home;
 
 
