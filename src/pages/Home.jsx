@@ -1,7 +1,7 @@
 // src/pages/Home.jsx
 import React, { useState, useEffect } from 'react';
 import '../css/auth.css';
-import { sendSyncFolder, backupFile } from '../apiService';
+import { sendSyncFolder, backupFile, downloadBackupFile } from '../apiService';
 
 // nodeIntegration 활성화되어 있으므로, window.require 사용
 const chokidar = window.require('chokidar');
@@ -9,23 +9,31 @@ const fs = window.require('fs');
 
 const Home = () => {
   const [folderPath, setFolderPath] = useState('');
+  // syncFolder가 이미 지정되어 있다면 localStorage에서 가져오기
+  // const [folderPath, setFolderPath] = useState(localStorage.getItem('syncFolder') || '');
   const [fileStatuses, setFileStatuses] = useState([]);
 
   const { ipcRenderer } = window.require('electron');
 
 
-  // 폴더 선택 함수
+  // 폴더 선택 함수: 최초로 폴더를 선택하면 서버에 저장하고 localStorage에도 저장하여 반복 요청을 피함
   const handleSelectFolder = async () => {
-    const selectedFolder = await ipcRenderer.invoke('open-folder-dialog');
-    if (selectedFolder) {
-      setFolderPath(selectedFolder);
-      console.log('선택된 폴더:', selectedFolder);
-      try {
-        const result = await sendSyncFolder(selectedFolder);
-        console.log('폴더 전송 성공:', result);
-      } catch (error) {
-        console.error('폴더 전송 에러:', error);
+    if (!folderPath) {
+      const selectedFolder = await ipcRenderer.invoke('open-folder-dialog');
+      if (selectedFolder) {
+        setFolderPath(selectedFolder);
+        // 로컬에도 저장
+        localStorage.setItem('syncFolder', selectedFolder);
+        console.log('선택된 폴더:', selectedFolder);
+        try {
+          const result = await sendSyncFolder(selectedFolder);
+          console.log('폴더 전송 성공:', result);
+        } catch (error) {
+          console.error('폴더 전송 에러:', error);
+        }
       }
+    } else {
+      console.log('이미 지정된 폴더 사용:', folderPath);
     }
   };
 
@@ -46,10 +54,16 @@ const Home = () => {
   // folderPath가 설정되면, 해당 폴더 내의 .txt 파일을 감시
   useEffect(() => {
     if (folderPath) {
-      const watcher = chokidar.watch(`${folderPath}/**/*.txt`, {
+      // const watcher = chokidar.watch(`${folderPath}/**/*.txt`, {
+      //   persistent: true,
+      //   ignoreInitial: true
+      // });
+      
+      // 변경: 서브폴더 제외 -> `${folderPath}/*.txt`
+      const watcher = chokidar.watch(`${folderPath}/*.txt`, {
         persistent: true,
         ignoreInitial: true
-      });
+      });      
       
       watcher.on('change', async (filePath) => {
         console.log(`변경 감지: ${filePath}`);
@@ -69,16 +83,28 @@ const Home = () => {
     }
   }, [folderPath]);
 
-  // 앱 시작 시, 보호된 API를 호출하여 인증 상태 확인
-  // useEffect(() => {
-  //   checkAuth();
-  // }, []);
+  // 추가로, 백업 파일 다운로드(검증) 기능 예시:
+  const handleDownloadBackup = async (filePath) => {
+    try {
+      const blob = await downloadBackupFile(filePath);
+      // Blob URL 생성 후 다운로드 링크 클릭
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filePath.split('/').pop(); // 파일명 추출
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('다운로드 에러:', error);
+      alert('다운로드 실패');
+    }
+  };
+
 
   return (
     <div className="auth-container">
       <div className="auth-box">
         <h1>HOME</h1>
-
         <button onClick={handleSelectFolder}>싱크용 폴더 선택</button>
         {folderPath && <p>선택된 폴더: {folderPath}</p>}
         {fileStatuses.length > 0 && (
@@ -87,7 +113,9 @@ const Home = () => {
             <ul>
               {fileStatuses.map((item) => (
                 <li key={item.filePath}>
-                  <strong>{item.filePath}</strong>: {item.status}
+                  <strong>{item.filePath}</strong>: {item.status}{' '}
+                  {/* 검증: 백업 파일 다운로드 버튼 */}
+                  <button onClick={() => handleDownloadBackup(item.filePath)}>다운로드 확인</button>
                 </li>
               ))}
             </ul>
@@ -97,7 +125,6 @@ const Home = () => {
     </div>
   );
 };
-
 export default Home;
 
 
