@@ -2,22 +2,32 @@
 
 // 폴더 정보를 서버에 전송하는 함수
 export const sendSyncFolder = async (folderPath) => {
-    const token = localStorage.getItem('token'); // 로그인 시 저장된 JWT 토큰
-    const response = await fetch('http://15.164.33.175:8080/api/sync-folder', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({ folderPath })
-    });
-    if (!response.ok) {
-      throw new Error('폴더 전송 실패');
-    }
-    return response.json();
-  };
+  const token = localStorage.getItem('token');
   
-  // 파일 백업 API 호출 함수 (단일 버전, 덮어쓰기)
+  // 토큰을 '.'으로 분리하여 두 번째 부분(페이로드)을 디코딩
+  const payloadPart = token.split('.')[1];
+  // Base64Url 디코딩: 먼저 Base64Url 형식을 일반 Base64 형식으로 변환해 주어야 함
+  const base64 = payloadPart.replace(/-/g, '+').replace(/_/g, '/');
+  const decodedPayload = JSON.parse(window.atob(base64));
+  const userId = decodedPayload.sub; // 여기서 "sub"가 userId임
+  
+  // 실제 API 엔드포인트에 userId 값을 삽입
+  const response = await fetch(`http://15.164.33.175:8080/users/${userId}/sync-folders`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify({ folderPath })
+  });
+  
+  if (!response.ok) {
+    throw new Error('폴더 전송 실패');
+  }
+  return response.json();
+};
+
+  // 파일 백업 API 호출 함수 (단일 버전, 덮어쓰기)이
   export const backupFile = async (backupData) => {
     const token = localStorage.getItem('token');
     const response = await fetch('http://15.164.33.175:8080/api/backup', {

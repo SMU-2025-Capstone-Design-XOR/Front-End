@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../css/home.css';
+import '../css/all.css';
 import { sendSyncFolder, backupFile, downloadBackupFile } from '../apiService';
 
 // nodeIntegration 활성화되어 있으므로, window.require 사용
@@ -10,9 +11,10 @@ const fs = window.require('fs');
 
 const Home = () => {
   // 임시로 localStorage에 저장된 syncFolder를 사용자별로 분리하는 방법:
-  // 예를 들어, 현재 로그인한 사용자의 이름을 localStorage에서 "currentUser" 키로 저장한다고 가정.
+  // 현재 로그인한 사용자의 이름을 localStorage에서 "currentUser" 키로 저장함.
   const currentUser = localStorage.getItem('currentUser') || 'default';
   const localKey = `syncFolder_${currentUser}`;
+  
   const [folderPath, setFolderPath] = useState(localStorage.getItem(localKey) || '');
   const [fileStatuses, setFileStatuses] = useState([]);
 
@@ -40,7 +42,7 @@ const Home = () => {
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('currentUser');
-    // localStorage.removeItem(localKey);
+    // localStorage.removeItem('localKey');
     navigate('/');
   };
 
@@ -103,8 +105,8 @@ const Home = () => {
   };
 
   return (
-    <div>
-      <div>
+    <div className="auth-container">
+      <div className="auth-box">
         <h1>HOME</h1>
         {/* 로그아웃 버튼 추가 */}
         <button onClick={handleLogout}>로그아웃</button>

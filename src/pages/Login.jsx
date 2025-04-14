@@ -24,8 +24,8 @@ const Login = () => {
       // JWT 토큰 저장
       if (data.token) {
         localStorage.setItem('token', data.token);
+        localStorage.setItem('currentUser', username);
         alert('로그인 성공!');
-        // console.log(data.token);
         navigate('/home');
       } else {
         throw new Error('토큰이 없습니다');
