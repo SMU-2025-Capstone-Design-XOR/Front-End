@@ -4,7 +4,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
-import './css/auth.css';
+import './css/login.css';
 
 const container = document.getElementById('root');
 const root = createRoot(container);

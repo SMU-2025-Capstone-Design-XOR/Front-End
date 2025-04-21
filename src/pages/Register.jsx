@@ -2,7 +2,11 @@
 
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import '../css/auth.css';
+import '../css/register.css';
+
+// Figma‑to‑React 컴포넌트
+import TextField from '../components/TextField';
+import Button from '../components/Button';
 
 const Register = () => {
   const [username, setUsername] = useState('');
@@ -27,16 +31,45 @@ const Register = () => {
   };
 
   return (
-    <div className="auth-container">
-      <div className="auth-box">
-        <h1>Create an account</h1>
+    <div className="create-an-account">
+      <div className="frame-2">
+        <div className="text-wrapper">Create an account</div>
         <form onSubmit={handleRegister}>
-          <input type="text" placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} required />
-          <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-          <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-          <button type="submit">Create an account</button>
+          <TextField
+            id="username"
+            label="Username"
+            value={username}
+            onChange={e => setUsername(e.target.value)}
+          />
+          <TextField
+            id="password"
+            label="Password"
+            type="password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+          />
+          <TextField
+            id="email"
+            label="Email"
+            type="email"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+          />
+
+          {/* Create an account */}
+          <Button
+            type="submit"
+            text="Create an account"
+            className="button-instance design-component-instance-node"
+          />
+
+          {/* To the Login page */}
+          <Button
+            text="To the Login page"
+            onClick={() => navigate('/')}
+            className="button-instance button-3"
+          />
         </form>
-        <button className="switch-btn" onClick={() => navigate('/')}>To the Login page</button>
       </div>
     </div>
   );

@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../css/home.css';
 import '../css/all.css';
-import { sendSyncFolder, backupFile, downloadBackupFile, getSyncFolder } from '../apiService';
+import { sendSyncFolder, backupFile, downloadFile, getSyncFolder } from '../apiService';
 
 // nodeIntegration 활성화되어 있으므로, window.require 사용
 const chokidar = window.require('chokidar');
@@ -143,7 +143,7 @@ const Home = () => {
   // **백업 파일 다운로드(검증) 기능:**
   const handleDownloadBackup = async (filePath) => {
     try {
-      const blob = await downloadBackupFile(filePath);
+      const blob = await downloadFile(filePath);
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
