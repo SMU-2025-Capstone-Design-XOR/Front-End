@@ -10,7 +10,11 @@ module.exports = {
     filename: 'renderer.bundle.js'
   },
   resolve: {
-    extensions: ['.js', '.jsx'] // .jsx 파일도 인식
+    extensions: ['.js', '.jsx'], // .jsx 파일도 인식
+    alias: {
+      // '@'를 'src' 디렉토리로 매핑
+      '@': path.resolve(__dirname, 'src'),
+    }    
   },
   devtool: 'source-map',
   module: {
