@@ -114,6 +114,33 @@ export const downloadFile = async (filePath) => {
   // Blob으로 변환하여 반환
   return response.blob();
 };
-  //   서비스 파일로 분리:
-  // 만약 백업 관련 API 호출 로직이 여러 곳에서 필요하다면, 이를 별도의 서비스 파일(예: apiService.js)에 분리하여 재사용하는 방식도 좋습니다.
-    
+
+
+/**
+ * 서버에 저장된 싱크 폴더 삭제
+ * @param {string} folderId
+ * @returns {Promise<void>}
+*/
+
+export const deleteSyncFolder = async (folderId) => {
+  const token = localStorage.getItem('token');
+  // JWT에서 userId 추출 (sendSyncFolder/getSyncFolder와 동일)
+  const payloadPart = token.split('.')[1];
+  const base64 = payloadPart.replace(/-/g, '+').replace(/_/g, '/');
+  const { sub: userId } = JSON.parse(window.atob(base64));
+
+  const response = await fetch(
+    `http://15.164.33.175:8080/users/${userId}/sync-folders/${folderId}`,
+    {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    }
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`폴더 삭제 실패 (HTTP ${response.status}): ${text}`);
+  }
+};
