@@ -110,7 +110,7 @@ const Login = () => {
             className="button-instance button-4"
           />
           <Button
-            text="Create an account"
+            text="Sign up"
             onClick={() => navigate('/register')}
             className="button-instance design-component-instance-node"
           />

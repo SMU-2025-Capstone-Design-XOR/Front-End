@@ -1,6 +1,9 @@
 // main.js
 
 const { app, BrowserWindow, dialog, ipcMain } = require('electron');
+// @electron/remote 초기화
+const remoteMain = require('@electron/remote/main');
+require('@electron/remote/main').initialize();
 const path = require('path');
 
 function createWindow() {
@@ -16,6 +19,10 @@ function createWindow() {
       contextIsolation: false
     }
   });
+
+  // **enable()** 을 호출해 주어야 렌더러에서 require('@electron/remote') 사용 가능
+  remoteMain.enable(win.webContents);
+
   win.loadURL(`file://${path.join(__dirname, 'index.html')}`);
   
   // 개발 중에 DevTools 열기 (선택 사항)

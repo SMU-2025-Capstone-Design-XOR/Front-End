@@ -33,7 +33,7 @@ const Register = () => {
   return (
     <div className="create-an-account">
       <div className="frame-2">
-        <div className="text-wrapper">Create an account</div>
+        <div className="text-wrapper">Sign up</div>
         <form onSubmit={handleRegister}>
           <TextField
             id="username"
@@ -56,16 +56,16 @@ const Register = () => {
             onChange={e => setEmail(e.target.value)}
           />
 
-          {/* Create an account */}
+          {/* Sign up */}
           <Button
             type="submit"
-            text="Create an account"
+            text="Sign up"
             className="button-instance design-component-instance-node"
           />
 
-          {/* To the Login page */}
+          {/* Back */}
           <Button
-            text="To the Login page"
+            text="Back"
             onClick={() => navigate('/')}
             className="button-instance button-3"
           />

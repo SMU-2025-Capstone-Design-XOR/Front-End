@@ -66,7 +66,7 @@ export const getSyncFolder = async () => {
 // 파일 백업 API 호출 함수 (단일 버전, 덮어쓰기)이
 export const backupFile = async (backupData) => {
   const token = localStorage.getItem('token');
-  const response = await fetch('http://15.164.33.175:8080/api/backup', {
+  const response = await fetch('http://15.164.33.175:8080/users/{{userId}}/folders/{{syncFolderId}}/upload', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -81,23 +81,54 @@ export const backupFile = async (backupData) => {
 };
 
 
-  /**
- * 범용 파일 다운로드 함수
- * @param {string} filePath - 서버 저장소 상의 파일 경로 (URL 인코딩 필요)
- * @returns {Promise<Blob>} 응답으로 받은 파일 Blob
+// 싱크 폴더에 파일 업로드 API
+/**
+ * 파일 업로드 호출
+ * @param {number|string} syncFolderId   서버에 저장된 싱크 폴더의 ID
+ * @param {string} filePath             로컬 절대 경로 또는 서버 상대 경로
+ * @returns {Promise<object>}           서버 응답 JSON ({ filePath, message })
  */
-export const downloadFile = async (filePath) => {
+export const uploadFile = async (syncFolderId, filePath) => {
   const token = localStorage.getItem('token');
-  // JWT에서 userId 추출 (sendSyncFolder/getSyncFolder와 동일)
   const payloadPart = token.split('.')[1];
   const base64 = payloadPart.replace(/-/g, '+').replace(/_/g, '/');
   const { sub: userId } = JSON.parse(window.atob(base64));
 
-  // GET 요청: 파일 경로를 쿼리 파라미터로 전달
-  const url = new URL(`http://15.164.33.175:8080/users/${userId}/files/download`);
-  url.searchParams.set('filePath', filePath);
-  // 최종 요청주소 = /users/{userId}/files/download?filePath={인코딩된경로} 형태가 된다.
+  const response = await fetch(
+    `http://15.164.33.175:8080/users/${userId}/folders/${syncFolderId}/upload`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ filePath, message: '파일 업로드 성공' })
+    }
+  );
 
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`파일 업로드 실패 (HTTP ${response.status}): ${text}`);
+  }
+  return response.json();
+};
+
+// 싱크 폴더 내 파일 다운로드 API
+/**
+ * 서버에 저장된 파일 다운로드
+ * @param {number|string} syncFolderId   서버에 저장된 싱크 폴더의 ID
+ * @param {string} fileName             다운로드할 파일 이름 (또는 경로)
+ * @returns {Promise<Blob>}             파일 Blob
+ */
+export const downloadFolderFile = async (syncFolderId, fileName) => {
+  const token = localStorage.getItem('token');
+  const payloadPart = token.split('.')[1];
+  const base64 = payloadPart.replace(/-/g, '+').replace(/_/g, '/');
+  const { sub: userId } = JSON.parse(window.atob(base64));
+
+  const url = new URL(
+    `http://15.164.33.175:8080/users/${userId}/folders/${syncFolderId}/files/${encodeURIComponent(fileName)}`
+  );
 
   const response = await fetch(url.toString(), {
     method: 'GET',
@@ -110,16 +141,11 @@ export const downloadFile = async (filePath) => {
     const text = await response.text();
     throw new Error(`파일 다운로드 실패 (HTTP ${response.status}): ${text}`);
   }
-
-  // Blob으로 변환하여 반환
   return response.blob();
 };
 
-
 /**
  * 서버에 저장된 싱크 폴더 삭제
- * @param {string} folderId
- * @returns {Promise<void>}
 */
 
 export const deleteSyncFolder = async (folderId) => {
@@ -143,4 +169,70 @@ export const deleteSyncFolder = async (folderId) => {
     const text = await response.text();
     throw new Error(`폴더 삭제 실패 (HTTP ${response.status}): ${text}`);
   }
+};
+
+/**
+ * 초기 스캔: 폴더 내 파일 리스트와 메타데이터를 서버에 전달
+ * @param {number|string} syncFolderId
+ * @param {{fileName:string,modifiedTime:number,size:number}[]} filesMeta
+ */
+export const scanFolderFiles = async (syncFolderId, filesMeta) => {
+  const token = localStorage.getItem('token');
+  const payload = JSON.parse(window.atob(token.split('.')[1]
+    .replace(/-/g,'+').replace(/_/g,'/')));
+  const userId = payload.sub;
+
+  const res = await fetch(
+    `http://15.164.33.175:8080/users/${userId}/sync-folders/${syncFolderId}/files/scan`,
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ files: filesMeta })
+    }
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`스캔 전송 실패 (${res.status}): ${text}`);
+  }
+  return res.json();
+};
+
+
+/**
+ *  서버에 저장된 싱크 폴더 안의 파일 목록 조회
+ */
+export const getFolderFileList = async (syncFolderId) => {
+  const token = localStorage.getItem('token');
+  const payload = JSON.parse(window.atob(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+  const userId = payload.sub;
+
+  const res = await fetch(
+    `http://15.164.33.175:8080/users/${userId}/folders/${syncFolderId}/files`,
+    { method: 'GET', headers: { 'Authorization': `Bearer ${token}` } }
+  );
+  if (!res.ok) throw new Error(`파일 목록 조회 실패: ${res.status}`);
+  return res.json(); // ["foo.txt","bar.txt",…]
+};
+
+/**
+ *  서버에 저장된 파일의 메타데이터 조회
+ *  -> { fileName, modifiedTime } 형태로 내려준다는 가정
+ *  @param {number|string} syncFolderId
+ *  @param {string} fileName
+ *  @returns {Promise<{fileName:string, modifiedTime:number}>}
+ */
+export const getFolderFileMeta = async (syncFolderId, fileName) => {
+  const token = localStorage.getItem('token');
+  const payload = JSON.parse(window.atob(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+  const userId = payload.sub;
+
+  const res = await fetch(
+    `http://15.164.33.175:8080/users/${userId}/folders/${syncFolderId}/files/${encodeURIComponent(fileName)}/meta`,
+    { method: 'GET', headers: { 'Authorization': `Bearer ${token}` } }
+  );
+  if (!res.ok) throw new Error(`메타데이터 조회 실패: ${res.status}`);
+  return res.json(); // { fileName, modifiedTime: 1671234567890 }
 };
