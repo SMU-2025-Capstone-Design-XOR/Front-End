@@ -1,2 +1,100 @@
 /* home.css */
-/* 홈 화면에서의 css 파일 */
+
+@import './styleguide.css';
+
+.home {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden; /* 전체 스크롤은 내부에서만 */
+  background-color: #ffffffe0;
+}
+
+/* 헤더 (고정) */
+.home .header {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 72px;
+  background-color: #f2f2f2;
+  border-bottom: 1px solid var(--neutral-2);
+  display: flex; align-items: center;
+  padding: 0 16px;
+  z-index: 10;
+}
+.home .header .folder-icon {
+  width: 24px; height: 24px;
+  background: url('../assets/folder.svg') no-repeat center/cover;
+  margin-right: 8px;
+}
+.home .header .header-title {
+  flex-grow: 1;
+  font-family: "Roboto-Bold", Helvetica;
+  font-size: 24px; font-weight: 700;
+  color: var(--textdefault);
+}
+.home .header .username {
+  font-family: "Roboto-Bold", Helvetica;
+  font-size: 20px; font-weight: 700;
+  color: var(--textdefault);
+  margin-right: 15px;
+}
+.home .header .person-icon {
+  width: 40px; height: 40px;
+  background: url('../assets/person-24.svg') no-repeat center/cover;
+  cursor: pointer;
+  margin-right: 30px;
+}
+
+/* 메인 그리드: 헤더 바로 아래부터 */
+.home .home-main {
+  position: absolute;
+  top: 72px; bottom: 0; left: 0; right: 0;
+  padding: 16px;
+  display: grid;
+  /* 한 줄에 최대 넣을 수 있는 만큼 자동으로 배치, 최소 150px 씩 */
+  grid-template-columns: repeat(auto-fill, 150px);
+  grid-auto-flow: column;
+  grid-auto-rows: 180px; /* 아이콘(150) + 레이블(30) */
+  gap: 24px;             /* 아이콘간 간격 (원하는 만큼 조정) */
+  overflow-y: auto;      /* 내부에서만 세로 스크롤 */
+  background-color: transparent;
+}
+
+/* 싱크 버튼 (New Sync, 기존 폴더) */
+.home .sync-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+}
+.home .sync-wrapper img {
+  width: 150px; height: 150px;
+}
+.home .sync-wrapper .sync-label {
+  margin-top: 8px; /* 아이콘과 레이블 사이 간격 */
+  font-family: "Inter-SemiBold", Helvetica;
+  font-size: 16px;
+  color: #000;
+}
+
+/* 파일 목록 섹션 (폴더 선택 시 오른쪽에 나타남) */
+.home .file-section {
+  position: absolute;
+  top: 72px; left: 200px;
+  bottom: 0; right: 16px;
+  padding: 16px;
+  overflow-y: auto;
+  background-color: #ffffff; /* 또는 반투명 배경 */
+  box-shadow: -2px 0 6px rgba(0,0,0,0.1);
+}
+.home .file-section .back-button {
+  margin-bottom: 16px;
+}
+.home .file-list {
+  list-style: none;
+  padding: 0;
+}
+.home .file-item {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 8px;
+}
