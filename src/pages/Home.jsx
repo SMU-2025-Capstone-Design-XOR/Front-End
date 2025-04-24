@@ -167,7 +167,12 @@ export default function Home() {
             key={folder.id}
             className="sync-wrapper"
             onContextMenu={showFolderMenu(folder.id)}
-            onDoubleClick={() => openFolder(folder)}
+            // onDoubleClick={() => openFolder(folder)}
+            onDoubleClick={() =>
+              navigate(`/folder/${folder.id}`, {
+                state: { folderPath: folder.folderPath }
+              })
+            }            
           >
             <img src={syncIcon} alt="" />
             <div className="sync-label">
