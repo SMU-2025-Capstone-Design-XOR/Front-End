@@ -96,7 +96,7 @@ const Login = () => {
             <label className="check-box-1-line check-box-3">
               <input
                 type="checkbox"
-                // checked={autoLogin}
+                checked={autoLogin}
                 onChange={() => setAutoLogin(prev => !prev)}
               />
               <span className="check-box-2">Auto Login</span>

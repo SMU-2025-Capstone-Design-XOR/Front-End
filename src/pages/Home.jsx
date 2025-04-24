@@ -1,16 +1,20 @@
+// src/pages/Home.jsx
+// 로그인 후 홈화면 진입
+
 import React, { useState, useEffect } from 'react';
 import { useNavigate }                   from 'react-router-dom';
 import { Menu, MenuItem, getCurrentWindow } from '@electron/remote';
 
-import createSync from '../assets/create-sync.svg';
-import syncIcon   from '../assets/sync.svg';
-import folderIcon from '../assets/folder.svg';
-import personIcon from '../assets/person-24.svg';
+import createSync from '../assets/Home/create-sync.svg';
+import syncIcon   from '../assets/Home/sync.svg';
+import folderIcon from '../assets/Home/folder.svg';
+import personIcon from '../assets/Home/person-24.svg';
 
 import '../css/home.css';
 import {
   sendSyncFolder,
   getSyncFolder,
+  deleteSyncFolder,
   scanFolderFiles,
   getFolderFileList,
   uploadFile,
@@ -29,7 +33,7 @@ export default function Home() {
   const [selectedFolder, setSelectedFolder] = useState(null);
   const [fileList, setFileList]             = useState([]);
 
-  const headerTitle  = 'Home';               // 헤더 제목
+  const headerTitle  = 'HOME';               // 헤더 제목
   const addSyncLabel = '싱크 폴더 추가';      // New Sync 레이블
 
   // 1) 서버에 등록된 싱크 폴더 목록 불러오기
@@ -91,6 +95,44 @@ export default function Home() {
     menu.popup({ window: getCurrentWindow() });
   };
 
+  // * 폴더 카드 우클릭 시 컨텍스트 메뉴 표시
+   const showFolderMenu = (folderId) => (e) => {
+     e.preventDefault();
+     const menu = new Menu();
+     menu.append(new MenuItem({
+       label: '정보 가져오기',
+       click: async () => {
+         // 예시: 첫 번째 파일 메타 가져오기
+         try {
+           const data = await getFolderFileMeta(folderId, fileList[0] || '');
+           alert(JSON.stringify(data, null, 2));
+         } catch (err) {
+           alert('정보 조회 실패');
+         }
+       }
+     }));
+     menu.append(new MenuItem({ type: 'separator' }));
+     menu.append(new MenuItem({
+       label: '폴더 삭제',
+       click: async () => {
+         if (!window.confirm('폴더를 삭제하시겠습니까?')) return;
+         try {
+           await deleteSyncFolder(folderId);
+           const refreshed = await getSyncFolder();
+           setSyncFolders(Array.isArray(refreshed) ? refreshed : []);
+           if (selectedFolder?.id === folderId) {
+             setSelectedFolder(null);
+             setFileList([]);
+           }
+         } catch {
+           alert('폴더 삭제 실패');
+         }
+       }
+     }));
+     menu.popup({ window: getCurrentWindow() });
+   };
+
+
   return (
     <div className="home">
       {/* 헤더 */}
@@ -124,6 +166,7 @@ export default function Home() {
           <div
             key={folder.id}
             className="sync-wrapper"
+            onContextMenu={showFolderMenu(folder.id)}
             onDoubleClick={() => openFolder(folder)}
           >
             <img src={syncIcon} alt="" />
