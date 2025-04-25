@@ -3,12 +3,15 @@
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate }                   from 'react-router-dom';
+
 import { Menu, MenuItem, getCurrentWindow } from '@electron/remote';
+import FolderContextMenu from '../components/FolderContextMenu';
 
 import createSync from '../assets/Home/create-sync.svg';
 import syncIcon   from '../assets/Home/sync.svg';
 import folderIcon from '../assets/Home/folder.svg';
 import personIcon from '../assets/Home/person-24.svg';
+// import 
 
 import '../css/home.css';
 import {
@@ -32,6 +35,14 @@ export default function Home() {
   const [syncFolders, setSyncFolders]       = useState([]);
   const [selectedFolder, setSelectedFolder] = useState(null);
   const [fileList, setFileList]             = useState([]);
+
+  // Context Menu state
+  const [ctxMenu, setCtxMenu] = useState({
+    visible: false,
+    x: 0, y: 0,
+    folderId: null,
+  });
+
 
   const headerTitle  = 'HOME';               // 헤더 제목
   const addSyncLabel = '싱크 폴더 추가';      // New Sync 레이블
@@ -96,40 +107,99 @@ export default function Home() {
   };
 
   // * 폴더 카드 우클릭 시 컨텍스트 메뉴 표시
-   const showFolderMenu = (folderId) => (e) => {
+  //  const showFolderMenu = (folderId) => (e) => {
+  //    e.preventDefault();
+  //    const menu = new Menu();
+  //    menu.append(new MenuItem({
+  //      label: '정보 가져오기',
+  //      click: async () => {
+  //        // 예시: 첫 번째 파일 메타 가져오기
+  //        try {
+  //          const data = await getFolderFileMeta(folderId, fileList[0] || '');
+  //          alert(JSON.stringify(data, null, 2));
+  //        } catch (err) {
+  //          alert('정보 조회 실패');
+  //        }
+  //      }
+  //    }));
+  //    menu.append(new MenuItem({ type: 'separator' }));
+  //    menu.append(new MenuItem({
+  //      label: '폴더 삭제',
+  //      click: async () => {
+  //        if (!window.confirm('폴더를 삭제하시겠습니까?')) return;
+  //        try {
+  //          await deleteSyncFolder(folderId);
+  //          const refreshed = await getSyncFolder();
+  //          setSyncFolders(Array.isArray(refreshed) ? refreshed : []);
+  //          if (selectedFolder?.id === folderId) {
+  //            setSelectedFolder(null);
+  //            setFileList([]);
+  //          }
+  //        } catch {
+  //          alert('폴더 삭제 실패');
+  //        }
+  //      }
+  //    }));
+  //    menu.popup({ window: getCurrentWindow() });
+  //  };
+  
+  // 5) 폴더 카드 우클릭 → React ContextMenu
+   const onFolderContext = folderId => e => {
      e.preventDefault();
-     const menu = new Menu();
-     menu.append(new MenuItem({
-       label: '정보 가져오기',
-       click: async () => {
-         // 예시: 첫 번째 파일 메타 가져오기
-         try {
-           const data = await getFolderFileMeta(folderId, fileList[0] || '');
-           alert(JSON.stringify(data, null, 2));
-         } catch (err) {
-           alert('정보 조회 실패');
-         }
+     setCtxMenu({
+       visible: true,
+       x: e.clientX,
+       y: e.clientY,
+       folderId,
+     });
+   };
+  
+   // 메뉴 밖 클릭 시 닫기
+  //  const onClickOutside = () => {
+  //    if (ctxMenu.visible) setCtxMenu({...ctxMenu, visible: false});
+  //  };
+  
+  useEffect(() => {
+    const handleClick = () => {
+      if (ctxMenu.visible) {
+        setCtxMenu(menu => ({ ...menu, visible: false }));
+      }
+    };
+    window.addEventListener('click', handleClick);
+    return () => window.removeEventListener('click', handleClick);
+  }, [ctxMenu.visible]);
+
+   // 컨텍스트 메뉴: 정보
+   const handleInfo = async () => {
+     try {
+       // 예시: 첫 번째 파일 메타
+       const data = await getFolderFileMeta(ctxMenu.folderId, fileList[0] || '');
+      //  alert(JSON.stringify(data, null, 2));
+      alert(`Folder ID: ${ctxMenu.folderId}`);
+     } catch {
+       alert('정보 조회 실패');
+     }
+    //  setCtxMenu({...ctxMenu, visible: false});
+    setCtxMenu(m => ({ ...m, visible: false }));
+   };
+  
+   // 컨텍스트 메뉴: 삭제
+   const handleDelete = async () => {
+     if (!window.confirm('폴더를 삭제하시겠습니까?')) {
+       return setCtxMenu({...ctxMenu, visible: false});
+     }
+     try {
+       await deleteSyncFolder(ctxMenu.folderId);
+       const refreshed = await getSyncFolder();
+       setSyncFolders(Array.isArray(refreshed) ? refreshed : []);
+       if (selectedFolder?.id === ctxMenu.folderId) {
+         setSelectedFolder(null);
+         setFileList([]);
        }
-     }));
-     menu.append(new MenuItem({ type: 'separator' }));
-     menu.append(new MenuItem({
-       label: '폴더 삭제',
-       click: async () => {
-         if (!window.confirm('폴더를 삭제하시겠습니까?')) return;
-         try {
-           await deleteSyncFolder(folderId);
-           const refreshed = await getSyncFolder();
-           setSyncFolders(Array.isArray(refreshed) ? refreshed : []);
-           if (selectedFolder?.id === folderId) {
-             setSelectedFolder(null);
-             setFileList([]);
-           }
-         } catch {
-           alert('폴더 삭제 실패');
-         }
-       }
-     }));
-     menu.popup({ window: getCurrentWindow() });
+     } catch {
+       alert('폴더 삭제 실패');
+     }
+     setCtxMenu({...ctxMenu, visible: false});
    };
 
 
@@ -166,8 +236,8 @@ export default function Home() {
           <div
             key={folder.id}
             className="sync-wrapper"
-            onContextMenu={showFolderMenu(folder.id)}
-            // onDoubleClick={() => openFolder(folder)}
+            // onContextMenu={showFolderMenu(folder.id)}
+            onContextMenu={onFolderContext(folder.id)}
             onDoubleClick={() =>
               navigate(`/folder/${folder.id}`, {
                 state: { folderPath: folder.folderPath }
@@ -181,6 +251,16 @@ export default function Home() {
           </div>
         ))}
       </div>
+
+      {/* React Context Menu */}
+     <FolderContextMenu
+       visible={ctxMenu.visible}
+       x={ctxMenu.x}
+       y={ctxMenu.y}
+       onInfo={handleInfo}
+       onDelete={handleDelete}
+     />
+
 
       {/* 파일 리스트 섹션 (선택된 폴더가 있을 때만) */}
       {selectedFolder && (
