@@ -36,8 +36,7 @@ const fetchWithAuth = async (url, options = {}) => {
   const res = await fetch(url, { ...options, headers });
   if (!res.ok) {
     const text = await res.text();
-    // throw new Error(`HTTP ${res.status}: ${text}`);
-    console.errer('API Error ${res.status} respone: ', text);
+    console.error(`API Error ${res.status} response:`, text);
     throw new Error(`HTTP ${res.status}: ${text}`);
   }
   const contentType = res.headers.get('content-type') || '';
@@ -139,8 +138,6 @@ export const deleteSyncFolder = async (folderId) => {
 
 
 
-
-
 /**
  * 초기 동기화: 전체 파일 메타데이터 전송
  * POST /users/{userId}/sync-folders/{folderId}/sync
@@ -185,37 +182,20 @@ export const getFolderFileMeta = async (syncFolderId, fileName) => {
   );
 };
 
-// === 동기화 구현을 위한 추가 API 함수들 ===
-
 /**
- * 전체 파일 메타데이터 일괄 조회 (bulk)
- * @param {string|number} syncFolderId
- * @returns {Promise<{fileName:string, modifiedTime:number, size:number}[]>}
- */
-export const getAllFilesMeta = async (syncFolderId) => {
-  const userId = getUserIdFromToken();
-  if (!userId) throw new Error('유효한 토큰이 없습니다.');
-  return fetchWithAuth(
-    `${API_BASE}/users/${userId}/folders/${syncFolderId}/files/meta`,
-    { method: 'GET' }
-  );
-};
-
-/**
- * 변경된 파일 메타데이터 전송 (증분 스캔)
- * @param {string|number} syncFolderId
- * @param {{fileName:string, modifiedTime:number, size:number}[]} changedFiles
+ * 폴더 내 개별 파일 삭제
+ * DELETE /users/{userId}/sync-folders/{folderId}/files/{fileId}
+ *
+ * @param {string|number} syncFolderId 싱크 폴더 ID
+ * @param {string|number} fileId        삭제할 파일의 ID
  * @returns {Promise<any>}
  */
-export const scanFolderChanges = async (syncFolderId, changedFiles) => {
+export const deleteFolderFile = async (syncFolderId, fileId) => {
   const userId = getUserIdFromToken();
   if (!userId) throw new Error('유효한 토큰이 없습니다.');
-  return fetchWithAuth(
-    `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/changes`,
-    { 
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ files: changedFiles }),
-    }
-  );
+
+  const encodedFileId = encodeURIComponent(fileId);
+  const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${encodedFileId}`;
+
+  return fetchWithAuth(url, { method: 'DELETE' });
 };

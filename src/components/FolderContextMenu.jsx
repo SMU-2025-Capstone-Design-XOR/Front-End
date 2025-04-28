@@ -19,7 +19,7 @@ const FolderContextMenu = ({ x, y, visible, onInfo, onDelete }) => {
       {/* 첫 번째 메뉴 */}
       <div className="component" onClick={onInfo}>
         <img className="icon" src={folderInfoSvg} alt="Folder information" />
-        <span className="label">파일 정보 가져오기</span>
+        <span className="label">폴더 정보 가져오기</span>
       </div>
 
       {/* 두 번째 메뉴 */}
