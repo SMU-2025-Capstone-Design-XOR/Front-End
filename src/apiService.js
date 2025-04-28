@@ -1,4 +1,7 @@
 // src/apiService.js
+import { Buffer } from 'buffer';      // Node buffer → 브라우저 Blob 변환에 필요
+import path from 'path';
+import mime from 'mime-types';
 
 /**
  * JWT 토큰에서 userId(sub)를 추출하는 헬퍼 함수
@@ -33,6 +36,8 @@ const fetchWithAuth = async (url, options = {}) => {
   const res = await fetch(url, { ...options, headers });
   if (!res.ok) {
     const text = await res.text();
+    // throw new Error(`HTTP ${res.status}: ${text}`);
+    console.errer('API Error ${res.status} respone: ', text);
     throw new Error(`HTTP ${res.status}: ${text}`);
   }
   const contentType = res.headers.get('content-type') || '';
@@ -75,21 +80,38 @@ export const getSyncFolder = async () => {
   );
 };
 
+
 /**
- * 단일 파일 업로드
+ * 단일 파일 업로드 (multipart/form-data)
+ * POST /users/{userId}/sync-folders/{folderId}/upload
  */
-export const uploadFile = async (syncFolderId, filePath) => {
+export const uploadFile = async (syncFolderId, localFilePath) => {
   const userId = getUserIdFromToken();
   if (!userId) throw new Error('유효한 토큰이 없습니다.');
+
+  // 1) 로컬 파일 읽기
+  const fileBuffer = window.require('fs').readFileSync(localFilePath);
+  const fileName   = path.basename(localFilePath);
+  const mimeType   = mime.lookup(localFilePath) || 'application/octet-stream';
+
+  // 2) Buffer → Blob 변환
+  const blob = new Blob([fileBuffer], { type: mimeType });
+
+  // 3) FormData 준비
+  const formData = new FormData();
+  formData.append('file', blob, fileName);
+
+  // 4) fetch
   return fetchWithAuth(
-    `${API_BASE}/users/${userId}/folders/${syncFolderId}/upload`,
+    `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/upload`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filePath, message: '파일 업로드 성공' }),
+      // FormData 쓰면 Content-Type 헤더를 직접 설정하지 마세요
+      body: formData,
     }
   );
 };
+
 
 /**
  * 단일 파일 다운로드
@@ -98,7 +120,7 @@ export const downloadFolderFile = async (syncFolderId, fileName) => {
   const userId = getUserIdFromToken();
   if (!userId) throw new Error('유효한 토큰이 없습니다.');
   const url = new URL(
-    `${API_BASE}/users/${userId}/folders/${syncFolderId}/files/${encodeURIComponent(fileName)}`
+    `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${encodeURIComponent(fileName)}`
   ).toString();
   return fetchWithAuth(url, { method: 'GET' });
 };
@@ -115,42 +137,50 @@ export const deleteSyncFolder = async (folderId) => {
   );
 };
 
+
+
+
+
 /**
- * 초기 스캔: 전체 파일 메타데이터 전송
+ * 초기 동기화: 전체 파일 메타데이터 전송
+ * POST /users/{userId}/sync-folders/{folderId}/sync
  */
-export const scanFolderFiles = async (syncFolderId, filesMeta) => {
+export const syncFolder = async (syncFolderId, clientFiles = [], deletedFileIds = []) => {
   const userId = getUserIdFromToken();
   if (!userId) throw new Error('유효한 토큰이 없습니다.');
   return fetchWithAuth(
-    `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/scan`,
+    `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/sync`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ files: filesMeta }),
+      body: JSON.stringify({ clientFiles, deletedFileIds }),
     }
   );
 };
 
+
 /**
  * 폴더 내 파일 목록 조회
+ * GET /users/{userId}/sync-folders/{folderId}/files
  */
 export const getFolderFileList = async (syncFolderId) => {
   const userId = getUserIdFromToken();
   if (!userId) throw new Error('유효한 토큰이 없습니다.');
   return fetchWithAuth(
-    `${API_BASE}/users/${userId}/folders/${syncFolderId}/files`,
+    `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files`,
     { method: 'GET' }
   );
 };
 
 /**
  * 개별 파일 메타데이터 조회
+ * GET /users/{userId}/sync-folders/{folderId}/files/{fileName}/meta
  */
 export const getFolderFileMeta = async (syncFolderId, fileName) => {
   const userId = getUserIdFromToken();
   if (!userId) throw new Error('유효한 토큰이 없습니다.');
   return fetchWithAuth(
-    `${API_BASE}/users/${userId}/folders/${syncFolderId}/files/${encodeURIComponent(fileName)}/meta`,
+    `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${encodeURIComponent(fileName)}/meta`,
     { method: 'GET' }
   );
 };
@@ -182,7 +212,7 @@ export const scanFolderChanges = async (syncFolderId, changedFiles) => {
   if (!userId) throw new Error('유효한 토큰이 없습니다.');
   return fetchWithAuth(
     `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/changes`,
-    {
+    { 
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ files: changedFiles }),

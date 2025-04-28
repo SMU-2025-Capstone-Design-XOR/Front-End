@@ -19,13 +19,13 @@ const FolderContextMenu = ({ x, y, visible, onInfo, onDelete }) => {
       {/* 첫 번째 메뉴 */}
       <div className="component" onClick={onInfo}>
         <img className="icon" src={folderInfoSvg} alt="Folder information" />
-        <span className="label">Folder information</span>
+        <span className="label">파일 정보 가져오기</span>
       </div>
 
       {/* 두 번째 메뉴 */}
       <div className="component" onClick={onDelete}>
         <img className="icon" src={deleteSvg} alt="Sync delete" />
-        <span className="label">Sync delete</span>
+        <span className="label">싱크 폴더 삭제</span>
       </div>
     </div>
   );

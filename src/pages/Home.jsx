@@ -2,26 +2,27 @@
 // 로그인 후 홈화면 진입
 
 import React, { useState, useEffect } from 'react';
-import { useNavigate }                   from 'react-router-dom';
-
+import { useNavigate } from 'react-router-dom';
 import { Menu, MenuItem, getCurrentWindow } from '@electron/remote';
+import crypto from 'crypto';
+import mime from 'mime-types';
 import FolderContextMenu from '../components/FolderContextMenu';
 
 import createSync from '../assets/Home/create-sync.svg';
 import syncIcon   from '../assets/Home/sync.svg';
 import folderIcon from '../assets/Home/folder.svg';
 import personIcon from '../assets/Home/person-24.svg';
-// import 
-
 import '../css/home.css';
+
 import {
-  sendSyncFolder,
-  getSyncFolder,
-  deleteSyncFolder,
-  scanFolderFiles,
-  getFolderFileList,
-  uploadFile,
-  downloadFolderFile,
+    sendSyncFolder,
+    getSyncFolder,
+    deleteSyncFolder,
+    syncFolder,              // <-- 변경
+    getFolderFileList,
+    getFolderFileMeta,       // <-- 추가
+    uploadFile,
+    downloadFolderFile,
 } from '../apiService';
 
 const { ipcRenderer } = window.require('electron');
@@ -43,7 +44,6 @@ export default function Home() {
     folderId: null,
   });
 
-
   const headerTitle  = 'HOME';               // 헤더 제목
   const addSyncLabel = '싱크 폴더 추가';      // New Sync 레이블
 
@@ -58,33 +58,85 @@ export default function Home() {
       }
     })();
   }, []);
-
-  // 2) New Sync: 폴더 선택 → 서버 등록 → 초기 스캔
+  // 2) New Sync: 폴더 선택 → 서버 등록 → 메타→ sync → 필요한 파일 업로드 → 폴더 목록 갱신
   const handleSelectFolder = async () => {
     const sel = await ipcRenderer.invoke('open-folder-dialog');
     if (!sel) return;
+
     try {
+      // 1) 서버에 폴더 등록 → created.id 반환
       const created = await sendSyncFolder(sel);
+
+      // 2) 로컬 메타 수집 (SHA-256, mime 포함)
       const filesMeta = fs.readdirSync(sel)
-        .filter(f => f.endsWith('.txt'))
-        .map(f => {
-          const stat = fs.statSync(path.join(sel, f));
-          return { fileName: f, modifiedTime: stat.mtimeMs, size: stat.size };
+        .filter(name => fs.statSync(path.join(sel, name)).isFile())
+        .map(fileName => {
+          const fullPath = path.join(sel, fileName);
+          const stat     = fs.statSync(fullPath);
+
+          const buffer   = fs.readFileSync(fullPath);
+          const hashSum  = crypto.createHash('sha256');
+          hashSum.update(buffer);
+          const fileHash = hashSum.digest('hex');
+
+          const fileMime = mime.lookup(fullPath) || 'application/octet-stream';
+
+          return {
+            originalName:  fileName,
+            relativePath:  fileName,
+            size:          stat.size,
+            hash:          fileHash,
+            mimeType:      fileMime,
+            createdAt:     new Date(stat.birthtime).toISOString(),
+            lastModified:  new Date(stat.mtimeMs).toISOString(),
+            lastSyncTime:  new Date().toISOString()
+          };
         });
-      await scanFolderFiles(created.id, filesMeta);
+
+      // 3) 서버에 메타 동기화 → 어떤 파일을 업로드해야 할지 응답으로 받음
+      const syncResult = await syncFolder(created.id, filesMeta, []);
+      // 예: syncResult.filesToUpload = ['a.txt','b.docx'], syncResult.filesToDownload = [...]
+
+      // 4) 서버에 없는 파일 실제 업로드
+      if (Array.isArray(syncResult.filesToUpload)) {
+        for (const fileName of syncResult.filesToUpload) {
+          const localPath = path.join(sel, fileName);
+          await uploadFile(created.id, localPath);
+        }
+      }
+
+      // 5) (옵션) 서버에서 내려받을 파일이 있으면 다운로드 처리
+      // if (Array.isArray(syncResult.filesToDownload)) {
+      //   for (const fileName of syncResult.filesToDownload) {
+      //     await downloadFolderFile(created.id, fileName);
+      //   }
+      // }
+
+      // 6) 최종 폴더 목록 갱신
       const data = await getSyncFolder();
       setSyncFolders(Array.isArray(data) ? data : []);
-    } catch {
-      alert('폴더 등록 또는 스캔 중 오류');
+    } catch (err) {
+      console.error('동기화 오류:', err.message);
+      alert('폴더 등록 또는 동기화 중 오류');
     }
   };
+
 
   // 3) 폴더 열기 → 파일 리스트 불러오기
   const openFolder = async (folder) => {
     setSelectedFolder(folder);
     try {
       const files = await getFolderFileList(folder.id);
-      setFileList(Array.isArray(files) ? files : []);
+      if (Array.isArray(files)) {
+        // API가 메타 객체를 돌려주면 originalName으로, 
+        // 그냥 문자열을 돌려주면 그대로 사용
+        const names = files.map(f =>
+          typeof f === 'string' ? f : (f.originalName || f.relativePath)
+        );
+        setFileList(names);
+      } else {
+        setFileList([]);
+      }
     } catch {
       alert('파일 목록 조회 실패');
     }
@@ -105,43 +157,6 @@ export default function Home() {
     }));
     menu.popup({ window: getCurrentWindow() });
   };
-
-  // * 폴더 카드 우클릭 시 컨텍스트 메뉴 표시
-  //  const showFolderMenu = (folderId) => (e) => {
-  //    e.preventDefault();
-  //    const menu = new Menu();
-  //    menu.append(new MenuItem({
-  //      label: '정보 가져오기',
-  //      click: async () => {
-  //        // 예시: 첫 번째 파일 메타 가져오기
-  //        try {
-  //          const data = await getFolderFileMeta(folderId, fileList[0] || '');
-  //          alert(JSON.stringify(data, null, 2));
-  //        } catch (err) {
-  //          alert('정보 조회 실패');
-  //        }
-  //      }
-  //    }));
-  //    menu.append(new MenuItem({ type: 'separator' }));
-  //    menu.append(new MenuItem({
-  //      label: '폴더 삭제',
-  //      click: async () => {
-  //        if (!window.confirm('폴더를 삭제하시겠습니까?')) return;
-  //        try {
-  //          await deleteSyncFolder(folderId);
-  //          const refreshed = await getSyncFolder();
-  //          setSyncFolders(Array.isArray(refreshed) ? refreshed : []);
-  //          if (selectedFolder?.id === folderId) {
-  //            setSelectedFolder(null);
-  //            setFileList([]);
-  //          }
-  //        } catch {
-  //          alert('폴더 삭제 실패');
-  //        }
-  //      }
-  //    }));
-  //    menu.popup({ window: getCurrentWindow() });
-  //  };
   
   // 5) 폴더 카드 우클릭 → React ContextMenu
    const onFolderContext = folderId => e => {
@@ -172,9 +187,12 @@ export default function Home() {
    // 컨텍스트 메뉴: 정보
    const handleInfo = async () => {
      try {
-       // 예시: 첫 번째 파일 메타
-       const data = await getFolderFileMeta(ctxMenu.folderId, fileList[0] || '');
-      //  alert(JSON.stringify(data, null, 2));
+      //  예시: 첫 번째 파일 메타
+      //const data = await getFolderFileMeta(ctxMenu.folderId, fileList[0] || '');
+
+      // 실제 API로 메타데이터 조회 (여기서는 첫 번째 파일 예시)
+      const data= await getFolderFileMeta(ctxMenu.folderId, fileList[0] || '');
+
       alert(`Folder ID: ${ctxMenu.folderId}`);
      } catch {
        alert('정보 조회 실패');
@@ -283,6 +301,7 @@ export default function Home() {
                     )
                   }
                 >
+                  
                   업로드
                 </button>
                 <button

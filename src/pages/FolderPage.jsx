@@ -2,19 +2,25 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Menu, MenuItem, getCurrentWindow }   from '@electron/remote';
+import { dialog } from '@electron/remote';
+
 
 import folderIcon from '../assets/Home/folder.svg';
 import personIcon from '../assets/Home/person-24.svg';
 
 import {
   getFolderFileList,
+  getFolderFileMeta,
   uploadFile,
   downloadFolderFile
 } from '../apiService';
 
+
+
 const { ipcRenderer } = window.require('electron');
 const fs   = window.require('fs');
 const path = window.require('path');
+const Buffer = window.require('buffer').Buffer;
 
 export default function FolderPage() {
   const { id } = useParams();
@@ -24,12 +30,58 @@ export default function FolderPage() {
   const username   = localStorage.getItem('currentUser') || 'User';
   const [fileList, setFileList] = useState([]);
 
+    // 파일 다운로드 핸들러
+    const handleDownload = async (fileName) => {
+      try {
+        // 1) 서버에서 파일 Blob 받아오기
+        const blob = await downloadFolderFile(id, fileName);
+        const arrayBuffer = await blob.arrayBuffer();
+  
+        // 2) 저장 경로 선택
+        const { filePath } = await dialog.showSaveDialog({
+          defaultPath: path.join(folderPath, fileName)
+        });
+        if (!filePath) return; // 사용자가 취소
+  
+        // 3) 디스크에 쓰기
+        fs.writeFileSync(filePath, Buffer.from(arrayBuffer));
+        alert('다운로드 완료!');
+      } catch (err) {
+        console.error('다운로드 실패:', err);
+        alert('다운로드 중 오류가 발생했습니다.');
+      }
+    };
+  
+    // 파일 업로드 핸들러 (성공 후 목록 갱신)
+    const handleUpload = async (fileName) => {
+      try {
+        const localPath = path.join(folderPath, fileName);
+        await uploadFile(id, localPath);
+        alert('업로드 완료!');
+        // 업로드 후 다시 목록 조회
+        const files = await getFolderFileList(id);
+        setFileList(Array.isArray(files)
+          ? files.map(f => typeof f === 'string' ? f : (f.originalName||f.relativePath))
+          : []);
+      } catch (err) {
+        console.error('업로드 실패:', err);
+        alert('업로드 중 오류가 발생했습니다.');
+      }
+    };
+
+
   // 파일 목록 불러오기
   useEffect(() => {
     (async () => {
       try {
         const files = await getFolderFileList(id);
-        setFileList(Array.isArray(files) ? files : []);
+        if (Array.isArray(files)) {
+          setFileList(files.map(f =>
+            typeof f === 'string' ? f : (f.originalName || f.relativePath)
+          ));
+        } else {
+          setFileList([]);
+        }
       } catch {
         alert('파일 목록 조회 실패');
       }
@@ -127,7 +179,7 @@ export default function FolderPage() {
             <span style={{ marginRight: '8px' }}>📄</span>
             <span style={{ flexGrow: 1 }}>{name}</span>
             <button
-              onClick={() => uploadFile(id, path.join(folderPath, name))}
+              onClick={() => handleUpload(name)}
               style={{
                 marginRight: '8px',
                 padding: '4px 8px',
@@ -137,7 +189,7 @@ export default function FolderPage() {
               업로드
             </button>
             <button
-              onClick={() => downloadFolderFile(id, name)}
+              onClick={() => handleDownload(name)}
               style={{
                 padding: '4px 8px',
                 cursor: 'pointer'
