@@ -12,14 +12,22 @@ import SyncManager from './SyncManager';
    console.log('App loaded');
    return (
     <>
-      {/* SyncManager는 라우트가 바뀌어도 계속 살아 있습니다 */}
-      <SyncManager />
       <Router>
          <Routes>
            <Route path="" element={<Login />} />
            <Route path="/register" element={<Register />} />
-           <Route path="/home" element={<Home />} />
-           <Route path="/folder/:id" element={<FolderPage />} />
+           <Route path="/home" element={
+            <>
+              <SyncManager />
+              <Home />
+            </>
+            } />
+           <Route path="/folder/:id" element={
+            <>
+              <SyncManager/>
+              <FolderPage />
+            </>
+            } />
          </Routes>
       </Router>
     </>

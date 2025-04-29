@@ -1,5 +1,6 @@
 // src/SyncManager.jsx
 import React, { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import crypto from 'crypto';
 import mime from 'mime-types';
 import chokidar from 'chokidar';
@@ -18,6 +19,7 @@ import {
 export default function SyncManager() {
   const [folders, setFolders] = useState([]);
   const watchersRef = useRef({});
+  const navigate = useNavigate();  // 네비게이션 훅 가져오기
 
   // 1) 앱 시작 시 서버에 등록된 싱크 폴더 목록 불러오기
   useEffect(() => {
@@ -31,9 +33,24 @@ export default function SyncManager() {
         const data = await getSyncFolder();
         setFolders(Array.isArray(data) ? data : []);
       } catch (e) {
-        console.error('Failed to load sync‐folders:', e);
+        // 토큰 만료 / 권한 오류 발생 시
+        if (e.message.startsWith('HTTP 403')) {
+          localStorage.removeItem('token');
+          alert('세션이 만료되었습니다. 다시 로그인 해주세요.');
+          navigate('/');  // 로그인 페이지로
+        } else {
+          console.error('Failed to load sync‐folders:', e);
+        }
       }
-    })();
+    })();    
+    // (async () => {
+    //   try {
+    //     const data = await getSyncFolder();
+    //     setFolders(Array.isArray(data) ? data : []);
+    //   } catch (e) {
+    //     console.error('Failed to load sync‐folders:', e);
+    //   }
+    // })();
   }, []);
 
 //   // 1) 앱 시작 시 & IPC 갱신 요청 올 때마다 서버에 등록된 폴더 목록 불러오기

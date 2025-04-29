@@ -41,12 +41,27 @@ export default function Home() {
   const watchersRef = useRef({});
 
   useEffect(() => {
-    getSyncFolder().then(data =>
-      setSyncFolders(Array.isArray(data) ? data : [])
-    ).catch(err => {
-      console.error(err);
-      alert('싱크 폴더 목록 로드 실패');
-    });
+    (async () => {
+      try {
+        const data = await getSyncFolder();
+        setSyncFolders(Array.isArray(data) ? data : []);
+      } catch (err) {
+        if (err.message.startsWith('HTTP 403')) {
+          localStorage.removeItem('token');
+          alert('세션이 만료되었습니다. 다시 로그인 해주세요.');
+          navigate('/');
+        } else {
+          console.error(err);
+          alert('싱크 폴더 목록 로드 실패');
+        }
+      }
+    })();    
+    // getSyncFolder().then(data =>
+    //   setSyncFolders(Array.isArray(data) ? data : [])
+    // ).catch(err => {
+    //   console.error(err);
+    //   alert('싱크 폴더 목록 로드 실패');
+    // });
   }, []);
 
   // 2) “싱크 폴더 추가” 버튼 핸들러
