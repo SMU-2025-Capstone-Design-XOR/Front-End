@@ -95,6 +95,8 @@ export default function Home() {
       // 6) 완료 후 단순히 목록만 갱신 (홈 화면에 카드 추가)
       const refreshed = await getSyncFolder();
       setSyncFolders(Array.isArray(refreshed) ? refreshed : []);
+      // SyncManager에도 업데이트 알림
+      // ipcRenderer.send('sync-folders-updated');
     } catch (err) {
       console.error('폴더 등록/동기화 실패:', err);
       alert('폴더 등록 또는 동기화 중 오류가 발생했습니다.');
@@ -115,6 +117,8 @@ export default function Home() {
     await deleteSyncFolder(ctxMenu.folderId);
     const refreshed = await getSyncFolder();
     setSyncFolders(Array.isArray(refreshed)?refreshed:[]);
+    // SyncManager에도 업데이트 알림
+    // ipcRenderer.send('sync-folders-updated');
     setCtxMenu(m=>({ ...m, visible:false }));
   };
 

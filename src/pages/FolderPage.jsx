@@ -26,7 +26,7 @@ export default function FolderPage() {
   const navigate   = useNavigate();
   const username   = localStorage.getItem('currentUser') || 'User';
 
-  // ── 헤더용 User 컨텍스트 메뉴 ──
+  // ── 헤더용 User 컨텍스트 메뉴 ── 
   const [userMenu, setUserMenu] = useState({ visible: false, x:0, y:0 });
   const showUserMenu = e => {
     e.preventDefault();
@@ -58,7 +58,6 @@ export default function FolderPage() {
                   name:     f
                 };
               }
-
               // 객체 형태(FileMetaDTO)로 내려줄 경우
               // f.id가 없으면 f.relativePath를 대신 사용
               const idKey = (f.id != null ? f.id : f.relativePath).toString();
@@ -106,19 +105,39 @@ export default function FolderPage() {
     }
   };
 
-  // ── “파일 삭제” ──
-  const handleDelete = async (fileId, fileName) => {
+  const handleDelete = async (_fileId, fileName) => {
+    // 1) 사용자 확인
     if (!window.confirm(`${fileName} 을(를) 정말 삭제하시겠습니까?`)) return;
+
     try {
-      await deleteFolderFile(id, fileId);
+      // 2) 서버에서 다시 메타 목록을 받아서, 해당 이름의 파일 ID 추출
+      const metaList = await getFolderFileList(id);
+      // 메타 객체 배열일 경우에만
+      const fileMeta = Array.isArray(metaList)
+        ? metaList.find(f =>
+            // originalName 혹은 relativePath 중 매칭되는 값 찾기
+            f.originalName === fileName ||
+            f.relativePath === fileName
+          )
+        : null;
+
+      if (!fileMeta || fileMeta.id == null) {
+        throw new Error('삭제할 파일의 ID를 찾을 수 없습니다.');
+      }
+      const actualId = fileMeta.id;
+
+      // 3) ID로 삭제 API 호출
+      await deleteFolderFile(id, actualId);
       alert('삭제되었습니다.');
-      // 로컬에서만 해당 항목 제거
-      setFileList(fl => fl.filter(f => f.fileId !== fileId));
+
+      // 4) 로컬 UI 업데이트: fileId로 필터링
+      setFileList(fl => fl.filter(f => f.fileId !== actualId.toString()));
     } catch (err) {
       console.error(err);
-      alert('삭제 실패');
+      alert('삭제 실패: ' + err.message);
     }
   };
+
 
   // ── 우클릭 컨텍스트 메뉴 ──
   const showFileMenu = (e, { fileId, fileName, name }) => {
@@ -143,7 +162,8 @@ export default function FolderPage() {
     menu.append(new MenuItem({
       label: '파일 삭제', 
       // click: () => handleDelete(fileId, name)
-      click: () => handleDelete(fileId, name)
+      click: () => handleDelete(null, fileName)
+
     }));
     menu.popup({ window: getCurrentWindow() });
   };
