@@ -11,19 +11,10 @@ const Login = () => {
   const navigate = useNavigate();
 
   const savedUsername = localStorage.getItem('rememberedUsername') || '';
-  const savedAutoLogin = localStorage.getItem('autoLogin') === 'true';
 
   const [username, setUsername] = useState(savedUsername);
   const [password, setPassword] = useState('');
   const [rememberId, setRememberId] = useState(!!savedUsername);
-  const [autoLogin, setAutoLogin] = useState(savedAutoLogin);
-
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token && autoLogin) {
-      navigate('/home');
-    }
-  }, [autoLogin, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -43,12 +34,6 @@ const Login = () => {
           localStorage.setItem('rememberedUsername', username);
         } else {
           localStorage.removeItem('rememberedUsername');
-        }
-
-        if (autoLogin) {
-          localStorage.setItem('autoLogin', 'true');
-        } else {
-          localStorage.removeItem('autoLogin');
         }
 
         alert('로그인 성공!');
@@ -92,14 +77,6 @@ const Login = () => {
                 onChange={() => setRememberId(prev => !prev)}
               />
               <span className="check-box-2">Remember Username</span>
-            </label>
-            <label className="check-box-1-line check-box-3">
-              <input
-                type="checkbox"
-                checked={autoLogin}
-                onChange={() => setAutoLogin(prev => !prev)}
-              />
-              <span className="check-box-2">Auto Login</span>
             </label>
           </div>
 
