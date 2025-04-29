@@ -49,24 +49,27 @@ export default function FolderPage() {
       try {
         const files = await getFolderFileList(id);
         const mapped = Array.isArray(files)
-        ? files.map(f => {
-            if (typeof f === 'string') {
-              // 서버가 단순 파일명 문자열 배열을 반환할 때
+          ? files.map(f => {
+              // 문자열로만 내려줄 경우
+              if (typeof f === 'string') {
+                return {
+                  fileId:   f,
+                  fileName: f,
+                  name:     f
+                };
+              }
+
+              // 객체 형태(FileMetaDTO)로 내려줄 경우
+              // f.id가 없으면 f.relativePath를 대신 사용
+              const idKey = (f.id != null ? f.id : f.relativePath).toString();
+              const relPath = f.relativePath || idKey;
               return {
-                fileId:     f,  // id 대신 파일명 자체를 key로 사용
-                fileName:   f,  // download/delete API 에 넘겨야 할 값
-                name:       f   // 화면에 표시할 이름
+                fileId:   idKey,
+                fileName: relPath,
+                name:     f.originalName || relPath
               };
-            } else {
-              // 서버가 메타 객체 배열을 반환할 때
-              return {
-                fileId:     f.id,
-                fileName:   f.relativePath,
-                name:       f.originalName || f.relativePath
-              };
-            }
-          })
-        : [];
+            })
+          : [];        
         setFileList(mapped);
       } catch (err) {
         console.error(err);
@@ -131,14 +134,14 @@ export default function FolderPage() {
     }));
     menu.append(new MenuItem({
       label: '정보 가져오기',
-      click: () => handleInfo(filename)
+      click: () => handleInfo(fileName)
     }));
     menu.append(new MenuItem({
       label: '파일 다운로드',
       click: () => handleDownload(fileName)
     }));
     menu.append(new MenuItem({
-      label: '파일 삭제',
+      label: '파일 삭제', 
       // click: () => handleDelete(fileId, name)
       click: () => handleDelete(fileId, name)
     }));
