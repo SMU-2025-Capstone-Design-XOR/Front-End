@@ -43,14 +43,6 @@ export default function SyncManager() {
         }
       }
     })();    
-    // (async () => {
-    //   try {
-    //     const data = await getSyncFolder();
-    //     setFolders(Array.isArray(data) ? data : []);
-    //   } catch (e) {
-    //     console.error('Failed to load sync‐folders:', e);
-    //   }
-    // })();
   }, []);
 
 //   // 1) 앱 시작 시 & IPC 갱신 요청 올 때마다 서버에 등록된 폴더 목록 불러오기

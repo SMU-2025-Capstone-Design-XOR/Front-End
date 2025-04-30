@@ -56,12 +56,6 @@ export default function Home() {
         }
       }
     })();    
-    // getSyncFolder().then(data =>
-    //   setSyncFolders(Array.isArray(data) ? data : [])
-    // ).catch(err => {
-    //   console.error(err);
-    //   alert('싱크 폴더 목록 로드 실패');
-    // });
   }, []);
 
   // 2) “싱크 폴더 추가” 버튼 핸들러

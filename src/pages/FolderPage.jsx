@@ -40,36 +40,33 @@ export default function FolderPage() {
     }
   };
 
-  // ── 1) 파일 리스트: { id, name } 배열 ──
+  // 파일 리스트: 서버가 내려주는 f.id(숫자) 그대로 보존합니다.
   const [fileList, setFileList] = useState([]);
-
-  // ── 2) 마운트 시 / ID 바뀔 때마다 목록 조회 ──
   useEffect(() => {
     (async () => {
       try {
         const files = await getFolderFileList(id);
+        // const mapped = Array.isArray(files)
+        //   // 문자열만 내려줄 경우엔 리스트에 표시하지 않습니다
+        //   ? files
+        //       .filter(f => typeof f === 'object' && f.id != null)
+        //       .map(f => ({
+        //         fileId:   f.id,                            // 서버 DB 고유 ID (숫자)
+        //         fileName: f.relativePath,                  // 다운로드/메타조회 등에 쓸 경로
+        //         name:     f.originalName || f.relativePath // UI에 표시할 이름
+        //       }))
+        //   : [];
         const mapped = Array.isArray(files)
-          ? files.map(f => {
-              // 문자열로만 내려줄 경우
-              if (typeof f === 'string') {
-                return {
-                  fileId:   f,
-                  fileName: f,
-                  name:     f
-                };
-              }
-              // 객체 형태(FileMetaDTO)로 내려줄 경우
-              // f.id가 없으면 f.relativePath를 대신 사용
-              const idKey = (f.id != null ? f.id : f.relativePath).toString();
-              const relPath = f.relativePath || idKey;
-              return {
-                fileId:   idKey,
-                fileName: relPath,
-                name:     f.originalName || relPath
-              };
-            })
-          : [];        
+        ? files
+            .filter(f => typeof f === 'object' && (f.id != null || f.relativePath))
+            .map(f => ({
+              fileId:   f.id != null ? f.id : f.relativePath,  // 없으면 경로로 대체
+              fileName: f.relativePath || f.id,
+              name:     f.originalName || f.relativePath || f.id
+            }))
+        : [];        
         setFileList(mapped);
+        console.log('[getFolderFileList 응답]', files);
       } catch (err) {
         console.error(err);
         alert('파일 목록 조회 실패');
@@ -105,40 +102,23 @@ export default function FolderPage() {
     }
   };
 
-  const handleDelete = async (_fileId, fileName) => {
-    // 1) 사용자 확인
-    if (!window.confirm(`${fileName} 을(를) 정말 삭제하시겠습니까?`)) return;
+  // 삭제: 숫자 ID를 받아서 바로 호출
+  const handleDelete = async (fileId) => {
+    // 파일 이름은 리스트에서 꺼내 쓰도록
+    const item = fileList.find(f => f.fileId === fileId);
+    if (!item) return;
+    if (!window.confirm(`’${item.name}‘ 을(를) 정말 삭제하시겠습니까?`)) return;
 
     try {
-      // 2) 서버에서 다시 메타 목록을 받아서, 해당 이름의 파일 ID 추출
-      const metaList = await getFolderFileList(id);
-      // 메타 객체 배열일 경우에만
-      const fileMeta = Array.isArray(metaList)
-        ? metaList.find(f =>
-            // originalName 혹은 relativePath 중 매칭되는 값 찾기
-            f.originalName === fileName ||
-            f.relativePath === fileName
-          )
-        : null;
-
-      if (!fileMeta || fileMeta.id == null) {
-        throw new Error('삭제할 파일의 ID를 찾을 수 없습니다.');
-      }
-      const actualId = fileMeta.id;
-
-      // 3) ID로 삭제 API 호출
-      await deleteFolderFile(id, actualId);
+      await deleteFolderFile(id, fileId);
       alert('삭제되었습니다.');
-
-      // 4) 로컬 UI 업데이트: fileId로 필터링
-      setFileList(fl => fl.filter(f => f.fileId !== actualId.toString()));
+      // UI에도 바로 반영
+      setFileList(fl => fl.filter(f => f.fileId !== fileId));
     } catch (err) {
       console.error(err);
       alert('삭제 실패: ' + err.message);
     }
   };
-
-
   // ── 우클릭 컨텍스트 메뉴 ──
   const showFileMenu = (e, { fileId, fileName, name }) => {
     e.preventDefault();
@@ -161,9 +141,8 @@ export default function FolderPage() {
     }));
     menu.append(new MenuItem({
       label: '파일 삭제', 
-      // click: () => handleDelete(fileId, name)
-      click: () => handleDelete(null, fileName)
-
+      click: () => handleDelete(fileId)
+      // click: () => handleDelete(fileName)
     }));
     menu.popup({ window: getCurrentWindow() });
   };
