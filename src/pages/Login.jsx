@@ -17,6 +17,7 @@ const Login = () => {
   const [rememberId, setRememberId] = useState(!!savedUsername);
 
   const handleSubmit = async (e) => {
+    // console.log('▶️ handleSubmit 호출:', { username, password });
     e.preventDefault();
     try {
       const response = await fetch('http://15.164.33.175:8080/auth/login', {

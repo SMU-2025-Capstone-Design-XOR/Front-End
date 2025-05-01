@@ -12,6 +12,12 @@
   box-shadow: 0 4px 12px rgba(0,0,0,0.25);
 }
 
+.user-context-menu .frame {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 0;
+}
+
 /* ─── 메뉴 아이템 ─── */
 .user-context-menu .component {
   display: flex;
@@ -40,10 +46,5 @@
   font-family: "ABeeZee-Regular", Helvetica, sans-serif;
   font-size: 20px;    
   white-space: nowrap;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  width: fit-content;
-  letter-spacing: 0;
   line-height: normal;
 }

@@ -142,7 +142,7 @@ export default function Home() {
       {/* 헤더 */}
       <div className="header">
         <div className="folder-icon"/>
-        <div className="header-title">HOME</div>
+        <div className="header-title">XOR</div>
         <div className="username">{username}</div>
         <div className="person-icon" onContextMenu={showUserMenu}/>
         {userMenu.visible && (

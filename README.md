@@ -9,11 +9,13 @@
 # 로그인 회원가입 서버연결 완료 + index.html 셋팅 완료 (25.04.07)
 # 폴더 정보 서버 전송 api 구현 (25.04.14)
 # 서버에서 폴더 정보 가져오기 api 또한 성공 (25.04.22)
-# 가져온 폴더 정보 삭제 api 구현 및 작동 구현 (25.04.24)
+# 가져온 폴더 정보 삭제 api 구현 but 작동 시 에러 (25.04.24)
 # 홈 화면에서 폴더 내 진입 + 처음 폴더 정보 서버로 전송 시, 폴더 내 파일 정보와 메타데이터도 전송 + 폴더 내 진입시 파일 나열 + 다운로드까지 구현 (25.04.28)
+# 클라이언트 동기화 api 구현 (현재 동기화 진행 중) (25.05.01)
 
 
 ##### Figma 를 통해 UI 구현 진행 중 (25.04.18~) #####
 # Login/Register - Figma to React를 통한 UI 구현 (25.04.22)
 # Home - Figma to React를 통한 UI 구현 (25.04.24)
 # Home -> Folder Context Menu - Figma to React를 통한 UI 구현 (25.04.26)
+# Home && FolderPage -> User Context Menu - Figma to React를 통한 UI 구현 (25.04.28)
