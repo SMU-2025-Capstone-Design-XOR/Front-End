@@ -4,7 +4,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Menu, MenuItem, getCurrentWindow } from '@electron/remote';
 import { dialog } from '@electron/remote';
 import chokidar from 'chokidar';
-
+const { ipcRenderer } = window.require('electron');
 import folderIcon from '../assets/Home/folder.svg';
 import personIcon from '../assets/Home/person-24.svg';
 import { UserContextMenu } from '../components/UserContextMenu';
@@ -70,6 +70,21 @@ export default function FolderPage() {
     loadFiles();
   }, [id]);
 
+
+  // ── 1‑2) SyncManager 에서 “파일 삭제” 이벤트가 오면 목록 다시 로드 ──
+  useEffect(() => {
+    function onDeleted(_e, { folderId, relativePath }) {
+      if (folderId === id) {
+        console.log(`IPC 수신: '${relativePath}' 삭제 → UI 갱신`);
+        loadFiles();
+      }
+    }
+    ipcRenderer.on('sync-file-deleted', onDeleted);
+    return () => {
+      ipcRenderer.removeListener('sync-file-deleted', onDeleted);
+    };
+  }, [id]);  
+
   // ── 2) 로컬 폴더 변경 감지하여 자동 갱신 ──
   useEffect(() => {
     if (!folderPath) return;
@@ -118,23 +133,6 @@ export default function FolderPage() {
       alert('다운로드 중 오류');
     }
   };
-
-  // ── “파일 삭제” ──
-  // const handleDelete = async (fileId) => {
-  //   const item = fileList.find(f => f.fileId === fileId);
-  //   if (!item) return;
-  //   if (!window.confirm(`’${item.name}‘ 을(를) 정말 삭제하시겠습니까?`)) return;
-
-  //   try {
-  //     await deleteFolderFile(id, fileId);
-  //     alert('삭제되었습니다.');
-  //     // 삭제 후에도 다시 불러와 UI 갱신
-  //     loadFiles();
-  //   } catch (err) {
-  //     console.error(err);
-  //     alert('삭제 실패: ' + err.message);
-  //   }
-  // };
 
   const handleDelete = async (fileIdOrName) => {
     try {

@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import crypto from 'crypto';
 import mime from 'mime-types';
 import chokidar from 'chokidar';
-import { ipcRenderer } from 'electron';
+const { ipcRenderer } = window.require('electron');
 const fs   = window.require('fs');
 const path = window.require('path');
 
@@ -22,6 +22,36 @@ export default function SyncManager() {
   const intervalsRef           = useRef({});
   const prevClientFilesRef     = useRef({}); // { [folderId]: Map<relativePath, FileMeta> }
   const navigate               = useNavigate();
+
+
+  // ── (0) 로컬 삭제만 처리하는 헬퍼 ──
+  async function handleLocalDelete(fullPath, id, root) {
+    try {
+      const rel = path.relative(root, fullPath).replace(/\\/g, '/');
+      // 1) 서버에 저장된 파일 메타 가져와서 ID 조회
+      const serverList = await getFolderFileList(id);
+      const meta = serverList.find(f => f.relativePath === rel);
+      // f.id 대신 f.fileId 로 내려오는 경우도 있으니 둘 다 확인
+      const fileId = meta?.id != null
+                    ? meta.id
+                    : meta?.fileId;
+      if (fileId == null) {
+        console.warn(`삭제: 서버 메타에서 '${rel}'의 ID를 찾을 수 없음.`);
+        return;
+      }
+      // 2) syncFolder 호출 시 deletedFileIds 로 전달 → 서버에서 진짜 삭제
+      await syncFolder(id, [], [fileId]);
+      
+      console.log(`로컬 삭제 감지: '${rel}' → 서버에서도 삭제 요청 완료`);
+      // ❶ 삭제가 끝났으니 IPC 로 폴더 페이지에 알린다.
+      ipcRenderer.send('sync-file-deleted', { folderId: id, relativePath: rel });      
+      // 3) prevClientFilesRef 업데이트
+      prevClientFilesRef.current[id]?.delete(rel);
+    } catch (e) {
+      console.error(`handleLocalDelete error for folder ${id}:`, e);
+    }
+  }  
+
 
   // ── (1) 재귀적으로 root 아래 모든 파일 메타 생성 ──
   function buildClientFiles(root) {
@@ -147,7 +177,7 @@ export default function SyncManager() {
           }
 
 
-          // 6 -> 5) 서버에서 삭제된 파일도 로컬에서 삭제
+          // 5) 서버에서 삭제된 파일도 로컬에서 삭제
           const serverSet = new Set(serverFiles.map(f => f.relativePath));
           clientFiles.forEach(f => {
             if (!serverSet.has(f.relativePath)) {
@@ -171,7 +201,20 @@ export default function SyncManager() {
           prevClientFilesRef.current[id] = currentMap;
 
         } catch (e) {
-          console.error(`Sync error for folder ${id}:`, e);
+          // 404라면 “이 폴더는 서버에 없으니” 여긴 더 이상 동기화 대상이 아닙니다.
+          if (e.message.startsWith('HTTP 404')) {
+            console.warn(`폴더 ${id} 가 서버에서 삭제되어 동기화 목록에서 제거합니다.`);
+            // 1) 해당 watcher/interval 정리
+            watchersRef.current[id]?.close();
+            clearInterval(intervalsRef.current[id]);
+            delete watchersRef.current[id];
+            delete intervalsRef.current[id];
+            prevClientFilesRef.current[id] = undefined;
+            // 2) folders 상태에서도 제거
+            setFolders(prev => prev.filter(f => f.id !== id));
+            return;
+         }
+         console.error(`Sync error for folder ${id}:`, e);          
         }
       };
 
@@ -188,8 +231,9 @@ export default function SyncManager() {
       });
       watcher
         .on('add',    () => doSync())
-        .on('unlink', () => doSync())
-        .on('change', filePath => handleChange(filePath, id, root));
+        .on('change', filePath => handleChange(filePath, id, root))
+        .on('unlink', filePath => handleLocalDelete(filePath, id, root));
+        // .on('unlink', () => doSync())
       watchersRef.current[id] = watcher;
 
       // (C) 원격 폴링
