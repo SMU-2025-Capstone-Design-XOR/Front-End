@@ -109,7 +109,7 @@ export default function SyncManager() {
 
     folders.forEach(folder => {
       const { id, folderPath: root } = folder;
-      const POLL_MS = 30_000;
+      const POLL_MS = 10_000;
 
       // 전체 폴더 스캔 + 동기화 로직 (폴링이나 add/unlink 시 사용)
       const doSync = async () => {

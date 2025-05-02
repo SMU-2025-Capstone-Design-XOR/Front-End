@@ -50,7 +50,7 @@ export default function FolderPage() {
       const files = await getFolderFileList(id);
       const mapped = Array.isArray(files)
         ? files
-            .filter(f => typeof f === 'object' && (f.id != null || f.relativePath))
+            .filter(f => typeof f === 'object' && (f.id != null || f.relativePath) && f.relativePath !== '.DS_Store')
             .map(f => ({
               fileId:   f.id != null ? f.id : f.relativePath,
               fileName: f.relativePath || f.id,
@@ -163,6 +163,13 @@ export default function FolderPage() {
       // 실제 삭제 호출
       await deleteFolderFile(id, targetId);
       alert('삭제되었습니다.');
+
+      // → 로컬에서도 파일 삭제
+      const localFull = path.join(folderPath, displayName);
+      if (fs.existsSync(localFull)) {
+        fs.unlinkSync(localFull);
+      }      
+
       loadFiles();
 
     } catch (err) {
