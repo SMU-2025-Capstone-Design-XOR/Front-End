@@ -23,7 +23,7 @@ export default function SyncManager() {
   const prevClientFilesRef     = useRef({}); // { [folderId]: Map<relativePath, FileMeta> }
   const navigate               = useNavigate();
 
-  // root 아래 모든 파일 메타 생성 (recursive)
+  // ── (1) 재귀적으로 root 아래 모든 파일 메타 생성 ──
   function buildClientFiles(root) {
     const results = [];
     function walk(dir) {
@@ -32,7 +32,7 @@ export default function SyncManager() {
         const stat = fs.statSync(full);
         if (stat.isFile()) {
           const buf = fs.readFileSync(full);
-          const rel = path.relative(root, full).replace(/\\/g, '/');
+          const rel = path.relative(root, full).replace(/\\/g,'/');
           results.push({
             originalName: rel,
             relativePath: rel,
@@ -50,7 +50,7 @@ export default function SyncManager() {
     return results;
   }
 
-  // 1) 최초 싱크폴더 목록 가져오기
+  // ── 1) 최초 싱크폴더 목록 가져오기 ──
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (!token) return;
@@ -70,9 +70,37 @@ export default function SyncManager() {
     })();
   }, []);
 
-  // 2) folders 바뀔 때마다 watcher & polling 재설정
+  // ── 변경된 파일만 처리하는 핸들러 ──
+  async function handleChange(fullPath, id, root) {
+    try {
+      // 1) 이 파일만 메타 생성
+      const stat = fs.statSync(fullPath);
+      const buf  = fs.readFileSync(fullPath);
+      const rel  = path.relative(root, fullPath).replace(/\\/g,'/');
+      const fileMeta = [{
+        originalName: rel,
+        relativePath: rel,
+        size: stat.size,
+        hash: crypto.createHash('sha256').update(buf).digest('hex'),
+        mimeType: mime.lookup(fullPath) || 'application/octet-stream',
+        lastModified: new Date(stat.mtimeMs).toISOString()
+      }];
+
+      // 2) sync 요청 (삭제 파일 없으므로 빈 배열)
+      const { filesToUpload = [] } = await syncFolder(id, fileMeta, []);
+
+      // 3) 실제 업로드
+      if (filesToUpload.includes(rel)) {
+        await uploadFile(id, fullPath);
+      }
+    } catch (e) {
+      console.error(`handleChange error for folder ${id}:`, e);
+    }
+  }
+
+  // ── 2) folders 바뀔 때마다 watcher & polling 재설정 ──
   useEffect(() => {
-    // cleanup 이전 watcher & interval
+    // 이전 watcher/interval 정리
     Object.values(watchersRef.current).forEach(w => w.close());
     Object.values(intervalsRef.current).forEach(i => clearInterval(i));
     watchersRef.current        = {};
@@ -81,30 +109,25 @@ export default function SyncManager() {
 
     folders.forEach(folder => {
       const { id, folderPath: root } = folder;
-      const POLL_MS = 30_000; // 30초마다 원격 폴링
+      const POLL_MS = 30_000;
 
-      // doSync: 스캔 → 서버 sync → 업로드/다운로드/삭제 적용
+      // 전체 폴더 스캔 + 동기화 로직 (폴링이나 add/unlink 시 사용)
       const doSync = async () => {
         try {
-          
-          // 1) 현재 메타 스캔 & 중복 제거
+          // 1) 현재 전체 메타 스캔 & 중복 제거
           const allFiles = buildClientFiles(root);
           const seen     = new Set();
           const clientFiles = allFiles.filter(f => {
-            // relativePath 가 이미 한 번 나왔으면 걸러내고,
             if (seen.has(f.relativePath)) return false;
-            // 아니면 이번에 추가하고 살려둡니다.
             seen.add(f.relativePath);
             return true;
           });
-
           const currentMap = new Map(clientFiles.map(f => [f.relativePath, f]));
 
-          // 2) 지난 스캔과 비교해 로컬에서 삭제된 파일(relativePath) 찾아 ID 수집
+          // 2) 삭제된 파일 ID 수집
           const prevMap = prevClientFilesRef.current[id] || new Map();
           const deletedFileIds = [];
           if (prevMap.size > 0) {
-            // 서버 메타 한 번 가져와서 id 찾아두기
             const serverList = await getFolderFileList(id);
             for (const prevRel of prevMap.keys()) {
               if (!currentMap.has(prevRel)) {
@@ -114,23 +137,17 @@ export default function SyncManager() {
             }
           }
 
-          // 3) 서버에 sync 요청 (삭제 ID 포함)
+          // 3) 서버 sync 요청
           const { filesToUpload = [], filesToDownload = [], serverFiles = [] } =
             await syncFolder(id, clientFiles, deletedFileIds);
 
-          // 4) 로컬 → 서버 업로드
+          // 4) 변경된 파일 업로드
           for (const rel of filesToUpload) {
             await uploadFile(id, path.join(root, rel));
           }
-          // 5) 서버 → 로컬 다운로드
-          for (const rel of filesToDownload) {
-            const blob = await downloadFolderFile(id, rel);
-            const buf  = await blob.arrayBuffer();
-            const full = path.join(root, rel);
-            fs.mkdirSync(path.dirname(full), { recursive: true });
-            fs.writeFileSync(full, Buffer.from(buf));
-          }
-          // 6) 서버에서 삭제된 파일 로컬에서도 삭제
+
+
+          // 6 -> 5) 서버에서 삭제된 파일도 로컬에서 삭제
           const serverSet = new Set(serverFiles.map(f => f.relativePath));
           clientFiles.forEach(f => {
             if (!serverSet.has(f.relativePath)) {
@@ -139,7 +156,18 @@ export default function SyncManager() {
             }
           });
 
-          // 7) 다음 비교를 위해 currentMap 저장
+          // 6) 서버 → 로컬 다운로드 (serverFiles 에 여전히 남아 있는 것만)
+          const toDownload = filesToDownload.filter(rel => serverSet.has(rel));
+          for (const rel of toDownload) {
+            const blob = await downloadFolderFile(id, rel);
+            const buf  = await blob.arrayBuffer();
+            const full = path.join(root, rel);
+            fs.mkdirSync(path.dirname(full), { recursive: true });
+            fs.writeFileSync(full, Buffer.from(buf));
+          }
+
+
+          // 7) 다음 비교용으로 현재 맵 저장
           prevClientFilesRef.current[id] = currentMap;
 
         } catch (e) {
@@ -147,23 +175,24 @@ export default function SyncManager() {
         }
       };
 
-      // 초기 동기화
+      // (A) 초기 동기화
       doSync();
 
-      // 2-2) 로컬 변경 감지: add/change/unlink → doSync
+      // (B) 로컬 변경 감지: add/unlink → 전체 동기화, change → 변경 파일만 처리
       const watcher = chokidar.watch(root, {
         ignored: /(^|[\/\\])\..+|~$|\.swp$/,
         persistent: true,
         ignoreInitial: true,
         depth: Infinity,
-        awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 100 }
+        awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 200 }
       });
-      watcher.on('add',    () => doSync())
-             .on('change', () => doSync())
-             .on('unlink', () => doSync());
+      watcher
+        .on('add',    () => doSync())
+        .on('unlink', () => doSync())
+        .on('change', filePath => handleChange(filePath, id, root));
       watchersRef.current[id] = watcher;
 
-      // 2-3) 원격 폴링
+      // (C) 원격 폴링
       const iv = setInterval(doSync, POLL_MS);
       intervalsRef.current[id] = iv;
     });
@@ -176,4 +205,3 @@ export default function SyncManager() {
 
   return null; // UI 없음
 }
-

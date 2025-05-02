@@ -157,7 +157,7 @@ export default function Home() {
       <div className="home-main">
           <div className="sync-wrapper" onClick={handleSelectFolder}>
           <img src={createSync} alt=""/>
-          <div className="sync-label">싱크 폴더 추가</div>
+          <div className="sync-label">백업 폴더 추가</div>
         </div>
         {syncFolders.map(folder => (
           <div
