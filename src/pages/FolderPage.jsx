@@ -48,7 +48,7 @@ export default function FolderPage() {
   const loadFiles = async () => {
     try {
       const files = await getFolderFileList(id);
-      const mapped = Array.isArray(files)
+      let mapped = Array.isArray(files)
         ? files
             .filter(f => typeof f === 'object' && (f.id != null || f.relativePath) && f.relativePath !== '.DS_Store')
             .map(f => ({
@@ -57,6 +57,14 @@ export default function FolderPage() {
               name:     f.originalName || f.relativePath || f.id
             }))
         : [];
+
+      // 파일 이름 기준으로 중복 제거 (맨 마지막 항목만 남김)
+      const seen = new Map();
+      mapped.forEach(item => {
+        seen.set(item.fileName, item);
+      });
+      mapped = Array.from(seen.values());
+
       setFileList(mapped);
       console.log('[getFolderFileList 응답]', files);
     } catch (err) {
@@ -91,9 +99,16 @@ export default function FolderPage() {
     }
     ipcRenderer.on('sync-file-added', onAdded);
 
+    // -- 1-4) SyncManager 에서 "파일 변경" 이벤트가 오면 목록 다시 로드
+    function onUpdated(_e, { folderId, relativePath }) {
+      if (folderId === Number(id)) loadFiles();
+    }
+    ipcRenderer.on('sync-file-updated', onUpdated);
+
     return () => {
       ipcRenderer.removeListener('sync-file-deleted', onDeleted);
       ipcRenderer.removeListener('sync-file-added', onAdded);
+      ipcRenderer.removeListener('sync-file-updated', onUpdated);
     };
   }, [id]);  
 

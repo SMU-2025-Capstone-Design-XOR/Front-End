@@ -42,6 +42,11 @@ app.whenReady().then(() => {
       win.webContents.send('sync-file-deleted', data);
     });
   });
+  ipcMain.on('sync-file-updated',  (e, data) => {
+    BrowserWindow.getAllWindows().forEach(w => {
+      w.webContents.send('sync-file-updated',  data);
+    });
+  });
 });
 
 

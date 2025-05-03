@@ -70,8 +70,31 @@ export default function SyncManager() {
 
   // ── (3) 로컬 수정 핸들러 ──
   async function handleLocalChange(fullPath, id, root) {
-    // 동일 로직: add 와 같음
-    await handleLocalAdd(fullPath, id, root);
+    try {
+      const rel  = path.relative(root, fullPath).replace(/\\/g,'/');
+      const stat = fs.statSync(fullPath);
+      const buf  = fs.readFileSync(fullPath);
+      // 1) 메타 생성
+      const meta = [{
+        originalName: rel,
+        relativePath: rel,
+        size: stat.size,
+        hash: crypto.createHash('sha256').update(buf).digest('hex'),
+        mimeType: mime.lookup(fullPath) || 'application/octet-stream',
+        lastModified: new Date(stat.mtimeMs).toISOString()
+      }];
+      // 2) syncFolder 로 “업데이트할 파일” 검사
+      const { filesToUpload = [] } = await syncFolder(id, meta, []);
+      if (filesToUpload.includes(rel)) {
+        // 3) 있으면 실제 업로드
+        await uploadFile(id, fullPath);
+        ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: rel });
+      }
+      // 4) 클라이언트 맵 갱신
+      prevClientMapRef.current[id]?.set(rel, meta[0]);
+    } catch (e) {
+      console.error(`handleLocalChange[${id}]`, e);
+    }
   }
 
   // ── (4) 로컬 삭제 핸들러 ──
