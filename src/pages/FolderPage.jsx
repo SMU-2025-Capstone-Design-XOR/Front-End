@@ -74,14 +74,26 @@ export default function FolderPage() {
   // ── 1‑2) SyncManager 에서 “파일 삭제” 이벤트가 오면 목록 다시 로드 ──
   useEffect(() => {
     function onDeleted(_e, { folderId, relativePath }) {
-      if (folderId === id) {
+      if (folderId === Number(id)) {
         console.log(`IPC 수신: '${relativePath}' 삭제 → UI 갱신`);
         loadFiles();
       }
     }
     ipcRenderer.on('sync-file-deleted', onDeleted);
+
+
+    // ── 1‑3) SyncManager 에서 “파일 추가” 이벤트가 오면 목록 다시 로드 ──
+    function onAdded(_e, { folderId, relativePath }) {
+      if (folderId === Number(id)) {
+        console.log(`IPC 수신: '${relativePath}' 추가 → UI 갱신`);
+        loadFiles();
+      }
+    }
+    ipcRenderer.on('sync-file-added', onAdded);
+
     return () => {
       ipcRenderer.removeListener('sync-file-deleted', onDeleted);
+      ipcRenderer.removeListener('sync-file-added', onAdded);
     };
   }, [id]);  
 
@@ -92,15 +104,18 @@ export default function FolderPage() {
       ignored: /(^|[\/\\])\..+|~$|\.swp$/,
       persistent: true,
       ignoreInitial: true,
-      depth: 0,  // 서브 폴더까지 지원하려면 Infinity 로 변경
+      // depth: 0,  // 서브 폴더까지 지원하려면 Infinity 로 변경
+      depth: Infinity,
       awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 100 }
     });
     const handle = () => {
       loadFiles();
     };
     watcher.on('add',    handle)
+           .on('addDir', handle)
            .on('change', handle)
-           .on('unlink', handle);
+           .on('unlink', handle)
+           .on('unlinkDir', handle);
 
     return () => watcher.close();
   }, [folderPath, id]);

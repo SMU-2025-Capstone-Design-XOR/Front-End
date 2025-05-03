@@ -26,7 +26,24 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(createWindow);
+// app.whenReady().then(createWindow);
+// 앱 초기화 후
+app.whenReady().then(() => {
+  createWindow();
+
+  // Renderer → Main 받은 이벤트를 모든 BrowserWindow에 다시 보냄
+  ipcMain.on('sync-file-added', (event, data) => {
+    BrowserWindow.getAllWindows().forEach(win => {
+      win.webContents.send('sync-file-added', data);
+    });
+  });
+  ipcMain.on('sync-file-deleted', (event, data) => {
+    BrowserWindow.getAllWindows().forEach(win => {
+      win.webContents.send('sync-file-deleted', data);
+    });
+  });
+});
+
 
 app.on('window-all-closed', () => {
   // macOS 외 모든 플랫폼에서 앱 종료 :contentReference[oaicite:1]{index=1}
