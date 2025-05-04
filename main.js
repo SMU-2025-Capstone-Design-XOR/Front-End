@@ -31,23 +31,18 @@ function createWindow() {
 app.whenReady().then(() => {
   createWindow();
 
-  // Renderer → Main 받은 이벤트를 모든 BrowserWindow에 다시 보냄
-  ipcMain.on('sync-file-added', (event, data) => {
-    BrowserWindow.getAllWindows().forEach(win => {
-      win.webContents.send('sync-file-added', data);
-    });
-  });
-  ipcMain.on('sync-file-deleted', (event, data) => {
-    BrowserWindow.getAllWindows().forEach(win => {
-      win.webContents.send('sync-file-deleted', data);
-    });
-  });
-  ipcMain.on('sync-file-updated',  (e, data) => {
-    BrowserWindow.getAllWindows().forEach(w => {
-      w.webContents.send('sync-file-updated',  data);
-    });
-  });
+  ipcMain.on('sync-file-added',    (e, d) => broadcast('sync-file-added',    d));
+  ipcMain.on('sync-file-deleted',  (e, d) => broadcast('sync-file-deleted',  d));
+  ipcMain.on('sync-file-updated',  (e, d) => broadcast('sync-file-updated',  d));
+  ipcMain.on('sync-folder-added',   (e, d) => broadcast('sync-folder-added',   d));
+  ipcMain.on('sync-folder-removed', (e, d) => broadcast('sync-folder-removed', d));
+
 });
+
+// helper function
+function broadcast(channel, data){
+  BrowserWindow.getAllWindows().forEach(w => w.webContents.send(channel, data));
+}
 
 
 app.on('window-all-closed', () => {

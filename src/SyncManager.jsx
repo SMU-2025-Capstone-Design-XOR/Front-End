@@ -23,6 +23,26 @@ export default function SyncManager() {
   const prevClientMapRef      = useRef({}); // { [folderId]: Map<relativePath, FileMeta> }
   const navigate              = useNavigate();
 
+
+
+  // Home에서 폴더 추가/삭제 동시 처리
+  useEffect(() => {
+    const onAdd = (_e, folder) => {
+      console.warn(`📁 [SyncManager] 폴더 추가 수신 → id=${folder.id}, path=${folder.folderPath}`);
+      setFolders(prev => [...prev, folder]);
+    };
+    const onRemove = (_e, { folderId }) => {
+      console.warn(`📁 [SyncManager] 폴더 삭제 수신 → id=${folderId}`);
+      setFolders(prev => prev.filter(f => f.id !== folderId));
+    };
+    ipcRenderer.on('sync-folder-added',   onAdd);
+    ipcRenderer.on('sync-folder-removed', onRemove);
+    return () => {
+      ipcRenderer.removeListener('sync-folder-added',   onAdd);
+      ipcRenderer.removeListener('sync-folder-removed', onRemove);
+    };
+  }, []);
+
   // ── (1) 최초 싱크폴더 목록 ──
   useEffect(() => {
     (async () => {
@@ -193,17 +213,14 @@ export default function SyncManager() {
           // (3) 갱신된 로컬 맵 저장
           prevClientMapRef.current[id] = localMap;
         } catch (e) {
-          // console.error(`doSync[${id}]`, e);
-          // 만약 404 (폴더가 서버에서 삭제됨) 라면
+          
           if (e.message.startsWith('HTTP 404')) {
             console.warn(`폴더 ${id} 가 서버에서 삭제되어 동기화 중단`);
-            // 1) watcher / interval 정리
             watchersRef.current[id]?.close();
             clearInterval(intervalsRef.current[id]);
             delete watchersRef.current[id];
             delete intervalsRef.current[id];
             delete prevClientMapRef.current[id];
-            // 2) folders 상태에서도 제거
             setFolders(prev => prev.filter(f => f.id !== id));
             return;
           }

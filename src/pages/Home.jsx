@@ -105,7 +105,7 @@ export default function Home() {
       const refreshed = await getSyncFolder();
       setSyncFolders(Array.isArray(refreshed) ? refreshed : []);
       // SyncManager에도 업데이트 알림
-      // ipcRenderer.send('sync-folders-updated');
+      ipcRenderer.send('sync-folder-added', created);
     } catch (err) {
       console.error('폴더 등록/동기화 실패:', err);
       alert('폴더 등록 또는 동기화 중 오류가 발생했습니다.');
@@ -126,8 +126,11 @@ export default function Home() {
     await deleteSyncFolder(ctxMenu.folderId);
     const refreshed = await getSyncFolder();
     setSyncFolders(Array.isArray(refreshed)?refreshed:[]);
-    // SyncManager에도 업데이트 알림
-    // ipcRenderer.send('sync-folders-updated');
+
+    // → 바로 SyncManager에게도 알려주기
+    ipcRenderer.send('sync-folder-removed', { folderId: ctxMenu.folderId });
+
+
     setCtxMenu(m=>({ ...m, visible:false }));
   };
 
