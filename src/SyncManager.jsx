@@ -68,34 +68,41 @@ export default function SyncManager() {
     }
   }
 
-  // ── (3) 로컬 수정 핸들러 ──
+// ── (3) 로컬 수정 핸들러 ──
   async function handleLocalChange(fullPath, id, root) {
-    try {
-      const rel  = path.relative(root, fullPath).replace(/\\/g,'/');
-      const stat = fs.statSync(fullPath);
-      const buf  = fs.readFileSync(fullPath);
-      // 1) 메타 생성
-      const meta = [{
-        originalName: rel,
-        relativePath: rel,
-        size: stat.size,
-        hash: crypto.createHash('sha256').update(buf).digest('hex'),
-        mimeType: mime.lookup(fullPath) || 'application/octet-stream',
-        lastModified: new Date(stat.mtimeMs).toISOString()
-      }];
-      // 2) syncFolder 로 “업데이트할 파일” 검사
-      const { filesToUpload = [] } = await syncFolder(id, meta, []);
-      if (filesToUpload.includes(rel)) {
-        // 3) 있으면 실제 업로드
-        await uploadFile(id, fullPath);
-        ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: rel });
-      }
-      // 4) 클라이언트 맵 갱신
-      prevClientMapRef.current[id]?.set(rel, meta[0]);
-    } catch (e) {
-      console.error(`handleLocalChange[${id}]`, e);
+    const rel = path.relative(root, fullPath).replace(/\\/g,'/');
+    // 1) 변경된 파일 하나의 메타만 syncFolder로 보냄
+    const stat = fs.statSync(fullPath);
+    const buf  = fs.readFileSync(fullPath);
+    const meta = [{
+      originalName:  rel,
+      relativePath:  rel,
+      size:          stat.size,
+      hash:          crypto.createHash('sha256').update(buf).digest('hex'),
+      mimeType:      mime.lookup(fullPath) || 'application/octet-stream',
+      lastModified:  new Date(stat.mtimeMs).toISOString()
+    }];
+
+    // 2) 서버에 “이 파일 업데이트 해도 되나요?” 요청
+    const { filesToUpload = [], filesToDownload = [] } = await syncFolder(id, meta, []);
+
+    // 3) 내 쪽이 더 최신이면 upload
+    if (filesToUpload.includes(rel)) {
+      await uploadFile(id, fullPath);
     }
+
+    // 4) 서버 쪽이 더 최신이면 download
+    if (filesToDownload.includes(rel)) {
+      const blob = await downloadFolderFile(id, rel);
+      const arr  = await blob.arrayBuffer();
+      fs.writeFileSync(fullPath, Buffer.from(arr));
+    }
+
+    // 5) UI 갱신
+    ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: rel });
   }
+
+
 
   // ── (4) 로컬 삭제 핸들러 ──
   async function handleLocalDelete(fullPath, id, root) {

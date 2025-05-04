@@ -50,7 +50,12 @@ export default function FolderPage() {
       const files = await getFolderFileList(id);
       let mapped = Array.isArray(files)
         ? files
-            .filter(f => typeof f === 'object' && (f.id != null || f.relativePath) && f.relativePath !== '.DS_Store')
+            // .filter(f => typeof f === 'object' && (f.id != null || f.relativePath) && f.relativePath !== '.DS_Store')
+            .filter(f =>
+                typeof f === 'object' &&
+                (f.id != null || f.relativePath) &&
+                !f.relativePath.startsWith('.')             // 숨김파일 전부 제거 
+             )
             .map(f => ({
               fileId:   f.id != null ? f.id : f.relativePath,
               fileName: f.relativePath || f.id,
@@ -101,7 +106,10 @@ export default function FolderPage() {
 
     // -- 1-4) SyncManager 에서 "파일 변경" 이벤트가 오면 목록 다시 로드
     function onUpdated(_e, { folderId, relativePath }) {
-      if (folderId === Number(id)) loadFiles();
+      if (folderId === Number(id)) {
+        console.log(`IPC 수신: '${relativePath}' 변경 → UI 갱신`);
+        loadFiles();
+      }
     }
     ipcRenderer.on('sync-file-updated', onUpdated);
 
