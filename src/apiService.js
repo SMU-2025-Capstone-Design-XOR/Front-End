@@ -115,12 +115,14 @@ export const uploadFile = async (syncFolderId, localFilePath) => {
 /**
  * 단일 파일 다운로드
  */
-export const downloadFolderFile = async (syncFolderId, fileName) => {
+export const downloadFolderFile = async (syncFolderId, relativePath) => {
   const userId = getUserIdFromToken();
   if (!userId) throw new Error('유효한 토큰이 없습니다.');
-  const url = new URL(
-    `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${encodeURIComponent(fileName)}`
-  ).toString();
+  const safePath = relativePath
+    .split('/')
+    .map(encodeURIComponent)
+    .join('/');
+  const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${safePath}`;
   return fetchWithAuth(url, { method: 'GET' });
 };
 
@@ -173,11 +175,17 @@ export const getFolderFileList = async (syncFolderId) => {
  * 개별 파일 메타데이터 조회
  * GET /users/{userId}/sync-folders/{folderId}/files/{fileName}/meta
  */
-export const getFolderFileMeta = async (syncFolderId, fileName) => {
+export const getFolderFileMeta = async (syncFolderId, relativePath) => {
   const userId = getUserIdFromToken();
   if (!userId) throw new Error('유효한 토큰이 없습니다.');
+  const safePath = relativePath
+    .split('/')
+    .map(encodeURIComponent)
+    .join('/');
+    const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${safePath}/meta`;
+
   return fetchWithAuth(
-    `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${encodeURIComponent(fileName)}/meta`,
+    url,
     { method: 'GET' }
   );
 };
