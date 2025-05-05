@@ -85,7 +85,9 @@ export default function Home() {
 
       // 4) 로컬 메타 수집도 targetDir 에서
       const clientFiles = fs.readdirSync(targetDir)
-        .filter(name => fs.statSync(path.join(targetDir, name)).isFile())
+        // .filter(name => fs.statSync(path.join(targetDir, name)).isFile())
+        .filter(name => !name.startsWith('.') &&
++                   fs.statSync(path.join(targetDir, name)).isFile())
         .map(name => {
           const full = path.join(targetDir, name);
           const stat = fs.statSync(full);
