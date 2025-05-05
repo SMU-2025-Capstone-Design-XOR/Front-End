@@ -3,8 +3,22 @@
 const { app, BrowserWindow, dialog, ipcMain } = require('electron');
 const remoteMain = require('@electron/remote/main');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
 
 remoteMain.initialize();
+
+function createXorRoot() {
+  const xorRoot = path.join(os.homedir(), 'XOR');
+  if (!fs.existsSync(xorRoot)) {
+    try {
+      fs.mkdirSync(xorRoot, { recursive: true });
+      console.log(`🏠 XOR root created at ${xorRoot}`);
+    } catch (err) {
+      console.error('Failed to create XOR root:', err);
+    }
+  }
+}
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -29,6 +43,7 @@ function createWindow() {
 // app.whenReady().then(createWindow);
 // 앱 초기화 후
 app.whenReady().then(() => {
+  createXorRoot();
   createWindow();
 
   ipcMain.on('sync-file-added',    (e, d) => broadcast('sync-file-added',    d));

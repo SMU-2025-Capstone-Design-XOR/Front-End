@@ -27,8 +27,9 @@ import {
 } from '../apiService';
 
 const { ipcRenderer } = window.require('electron');
-const fs     = window.require('fs');
-const path   = window.require('path');
+const fs = window.require('fs');
+const path = window.require('path');
+const os = window.require('os');
 
 export default function Home() {
   const navigate = useNavigate();
@@ -62,15 +63,31 @@ export default function Home() {
   const handleSelectFolder = async () => {
     const sel = await ipcRenderer.invoke('open-folder-dialog');
     if (!sel) return;
-    try {
-      // 1) 폴더 경로만 서버에 등록 → 생성된 ID 받기
-      const created = await sendSyncFolder(sel);
 
-      // 2) 로컬 파일 메타 수집
-      const clientFiles = fs.readdirSync(sel)
-        .filter(name => fs.statSync(path.join(sel, name)).isFile())
+    // 1) XOR 루트 경로
+    const xorRoot = path.join(os.homedir(), 'XOR');
+    if (!fs.existsSync(xorRoot)) {
+      fs.mkdirSync(xorRoot, { recursive: true });
+    }
+
+    // 2) 선택된 폴더 이름만 추출 → XOR 루트 아래에 디렉토리 생성
+    const folderName = path.basename(sel);
+    const targetDir  = path.join(xorRoot, folderName);
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true });
+      // (선택) 초기 내용 복사까지 하려면 다음 같이:
+      copyRecursive(sel, targetDir);
+    }
+
+    try {
+      // 3) 서버에 등록할 때는 targetDir 사용
+      const created = await sendSyncFolder(targetDir);
+
+      // 4) 로컬 메타 수집도 targetDir 에서
+      const clientFiles = fs.readdirSync(targetDir)
+        .filter(name => fs.statSync(path.join(targetDir, name)).isFile())
         .map(name => {
-          const full = path.join(sel, name);
+          const full = path.join(targetDir, name);
           const stat = fs.statSync(full);
           const hash = crypto.createHash('sha256')
                              .update(fs.readFileSync(full))
@@ -85,32 +102,29 @@ export default function Home() {
           };
         });
 
-      // 3) syncFolder API 로 초기 동기화 요청 (업/다운 대상 리턴)
+      // 5) 초기 sync & 업/다운로드
       const { filesToUpload = [], filesToDownload = [] } =
         await syncFolder(created.id, clientFiles, []);
-
-      // 4) 업로드해야 할 파일들 전부 업로드
       for (const name of filesToUpload) {
-        await uploadFile(created.id, path.join(sel, name));
+        await uploadFile(created.id, path.join(targetDir, name));
       }
-
-      // 5) 다운로드해야 할 파일들 전부 다운로드
       for (const name of filesToDownload) {
         const blob = await downloadFolderFile(created.id, name);
         const buf  = await blob.arrayBuffer();
-        fs.writeFileSync(path.join(sel, name), Buffer.from(buf));
+        fs.writeFileSync(path.join(targetDir, name), Buffer.from(buf));
       }
 
-      // 6) 완료 후 단순히 목록만 갱신 (홈 화면에 카드 추가)
+      // 6) 목록 갱신 & SyncManager에 알리기
       const refreshed = await getSyncFolder();
       setSyncFolders(Array.isArray(refreshed) ? refreshed : []);
-      // SyncManager에도 업데이트 알림
       ipcRenderer.send('sync-folder-added', created);
+
     } catch (err) {
       console.error('폴더 등록/동기화 실패:', err);
       alert('폴더 등록 또는 동기화 중 오류가 발생했습니다.');
-    }
-  };
+    }      
+  };  
+  
 
   // --- 3) 폴더 카드 이벤트 & 메뉴 (기존 로직) ---
   const [ctxMenu, setCtxMenu]     = useState({ visible:false, x:0, y:0, folderId:null });
@@ -183,4 +197,19 @@ export default function Home() {
       />
     </div>
   );
+}
+
+// 간단한 재귀 복사 헬퍼 (Node 16+ 이시면 fs.cpSync 사용하셔도 됩니다)
+function copyRecursive(src, dest) {
+  for (const name of fs.readdirSync(src)) {
+    const from = path.join(src, name);
+    const to   = path.join(dest, name);
+    const stat = fs.statSync(from);
+    if (stat.isDirectory()) {
+      fs.mkdirSync(to, { recursive: true });
+      copyRecursive(from, to);
+    } else {
+      fs.copyFileSync(from, to);
+    }
+  }
 }
