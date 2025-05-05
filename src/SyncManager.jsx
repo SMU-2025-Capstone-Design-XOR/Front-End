@@ -93,6 +93,7 @@ export default function SyncManager() {
       // sync → filesToUpload 에 들어오면 업로드
       const { filesToUpload = [] } = await syncFolder(id, meta, []);
       if (filesToUpload.includes(rel)) {
+        console.warn(`📁 [SyncManager] IPC 보내기 → sync-file-added (folderId=${id}, relativePath=${rel})`);
         await uploadFile(id, fullPath);
         // notify UI
         ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
@@ -124,11 +125,13 @@ export default function SyncManager() {
 
     // 3) 내 쪽이 더 최신이면 upload
     if (filesToUpload.includes(rel)) {
+      console.warn(`📁 [SyncManager] IPC 보내기 → sync-file-updated (upload) (folderId=${id}, relativePath=${rel})`);
       await uploadFile(id, fullPath);
     }
 
     // 4) 서버 쪽이 더 최신이면 download
     if (filesToDownload.includes(rel)) {
+      console.warn(`📁 [SyncManager] IPC 보내기 → sync-file-updated (download) (folderId=${id}, relativePath=${rel})`);
       const blob = await downloadFolderFile(id, rel);
       const arr  = await blob.arrayBuffer();
       fs.writeFileSync(fullPath, Buffer.from(arr));
@@ -151,7 +154,7 @@ export default function SyncManager() {
       // syncFolder 에 deletedFileIds 로 전달 → 서버에서도 삭제
       await syncFolder(id, [], [fileId]);
       prevClientMapRef.current[id]?.delete(rel);
-      // notify UI
+      console.warn(`📁 [SyncManager] IPC 보내기 → sync-file-deleted (folderId=${id}, relativePath=${rel})`);
       ipcRenderer.send('sync-file-deleted', { folderId: id, relativePath: rel });
     } catch (e) {
       console.error(`handleLocalDelete[${id}]`, e);
@@ -249,7 +252,7 @@ export default function SyncManager() {
               const full = path.join(root, rel);
               fs.mkdirSync(path.dirname(full), { recursive: true });
               fs.writeFileSync(full, Buffer.from(buf));
-
+              console.warn(`📁 [SyncManager] IPC 보내기 → sync-file-added (polling) (folderId=${id}, relativePath=${rel})`);
               ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
             }
           }
@@ -257,7 +260,10 @@ export default function SyncManager() {
           for (const [rel] of localMap) {
             if (!serverMap.has(rel)) {
               const full = path.join(root, rel);
-              if (fs.existsSync(full)) fs.unlinkSync(full);
+              if (fs.existsSync(full)) {
+                console.warn(`📁 [SyncManager] 파일 삭제 (polling) → ${full}`);
+                fs.unlinkSync(full);
+              }
             }
           }
 
