@@ -142,7 +142,15 @@ export default function Home() {
     setSyncFolders(Array.isArray(refreshed)?refreshed:[]);
 
     // → 바로 SyncManager에게도 알려주기
-    ipcRenderer.send('sync-folder-removed', { folderId: ctxMenu.folderId });
+    // ipcRenderer.send('sync-folder-removed', { folderId: ctxMenu.folderId });
+    {
+      // 삭제 직전에, 현재 띄워진 syncFolders 배열에서 해당 folderPath를 찾아서
+      const toDel = syncFolders.find(f => f.id === ctxMenu.folderId);
+      ipcRenderer.send('sync-folder-removed', {
+        folderId:   ctxMenu.folderId,
+        folderPath: toDel?.folderPath   // Home 리스트의 folderPath
+      });
+    }
 
 
     setCtxMenu(m=>({ ...m, visible:false }));
