@@ -44,39 +44,77 @@ export default function FolderPage() {
   // ── 파일 리스트 상태 ──
   const [fileList, setFileList] = useState([]);
 
-  // ── 파일 목록 로드 + 매핑 로직을 함수로 분리 ──
-  const loadFiles = async () => {
-    try {
-      const files = await getFolderFileList(id);
-      let mapped = Array.isArray(files)
-        ? files
-            // .filter(f => typeof f === 'object' && (f.id != null || f.relativePath) && f.relativePath !== '.DS_Store')
-            .filter(f =>
-                typeof f === 'object' &&
-                (f.id != null || f.relativePath) &&
-                !f.relativePath.startsWith('.')             // 숨김파일 전부 제거 
-             )
-            .map(f => ({
-              fileId:   f.id != null ? f.id : f.relativePath,
-              fileName: f.relativePath || f.id,
-              name:     f.originalName || f.relativePath || f.id
-            }))
-        : [];
+// ── 파일 목록 로드 + 매핑 ──
+const loadFiles = async () => {
+  try {
+    const files = await getFolderFileList(id);
+    if (!Array.isArray(files)) return setFileList([]);
 
-      // 파일 이름 기준으로 중복 제거 (맨 마지막 항목만 남김)
-      const seen = new Map();
-      mapped.forEach(item => {
-        seen.set(item.fileName, item);
+    const mapped = files
+      // (1) originalName 이 있고, 숨김 파일이 아니어야 함
+      .filter(f =>
+        typeof f === 'object' &&
+        (f.id != null || f.originalName) &&
+        !f.originalName.startsWith('.')
+      )
+      .map(f => {
+        // relativePath 가 빈 문자열이거나 undefined 면 originalName 으로 대체
+        const rel = f.relativePath && f.relativePath.trim()
+                  ? f.relativePath
+                  : f.originalName;
+
+        return {
+          fileId:   f.id,
+          fileName: rel,       // 컨텍스트 메뉴나 다운로드 시 URL 파라미터로 씀
+          name:     f.originalName  // 화면에 뿌려 줄 텍스트
+        };
       });
-      mapped = Array.from(seen.values());
 
-      setFileList(mapped);
-      console.log('[getFolderFileList 응답]', files);
-    } catch (err) {
-      console.error(err);
-      alert('파일 목록 조회 실패');
-    }
-  };
+    // 중복 제거 (fileName 은 이제 항상 string 이므로 안정적)
+    const seen = new Map();
+    mapped.forEach(item => seen.set(item.fileName, item));
+    setFileList(Array.from(seen.values()));
+    console.log('[getFolderFileList 응답]', files);
+  } catch (err) {
+    console.error(err);
+    alert('파일 목록 조회 실패');
+  }
+};
+
+
+  // // ── 파일 목록 로드 + 매핑 로직을 함수로 분리 ──
+  // const loadFiles = async () => {
+  //   try {
+  //     const files = await getFolderFileList(id);
+  //     let mapped = Array.isArray(files)
+  //       ? files
+  //           // .filter(f => typeof f === 'object' && (f.id != null || f.relativePath) && f.relativePath !== '.DS_Store')
+  //           .filter(f =>
+  //               typeof f === 'object' &&
+  //               (f.id != null || f.relativePath) &&
+  //               !f.relativePath.startsWith('.')             // 숨김파일 전부 제거 
+  //            )
+  //           .map(f => ({
+  //             fileId:   f.id != null ? f.id : f.relativePath,
+  //             fileName: f.relativePath || f.id,
+  //             name:     f.originalName || f.relativePath || f.id
+  //           }))
+  //       : [];
+
+  //     // 파일 이름 기준으로 중복 제거 (맨 마지막 항목만 남김)
+  //     const seen = new Map();
+  //     mapped.forEach(item => {
+  //       seen.set(item.fileName, item);
+  //     });
+  //     mapped = Array.from(seen.values());
+
+  //     setFileList(mapped);
+  //     console.log('[getFolderFileList 응답]', files);
+  //   } catch (err) {
+  //     console.error(err);
+  //     alert('파일 목록 조회 실패');
+  //   }
+  // };
 
   // ── 1) ID 변경 시(=다른 폴더 진입) 목록 로드 ──
   useEffect(() => {
