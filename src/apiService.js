@@ -115,22 +115,17 @@ export const uploadFile = async (syncFolderId, localFilePath) => {
 /**
  * 단일 파일 다운로드
  */
-export const downloadFolderFile = async (syncFolderId, fileIdOrPath) => {
+export const downloadFolderFile = async (syncFolderId, relativePath) => {
   const userId = getUserIdFromToken();
   if (!userId) throw new Error('유효한 토큰이 없습니다.');
 
-  let url;
-  // 숫자 ID 형식이면 fileId 경로로 요청
-  if (typeof fileIdOrPath === 'number' || /^\d+$/.test(String(fileIdOrPath))) {
-    url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${fileIdOrPath}`;
-  } else {
-    // 그 외엔 원래 relativePath 방식
-    const safePath = String(fileIdOrPath)
-      .split('/')
-      .map(encodeURIComponent)
-      .join('/');
-    url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${safePath}`;
-  }
+  // "/" 단위로 URI 인코딩
+  const safePath = relativePath
+    .split('/')
+    .map(encodeURIComponent)
+    .join('/');
+
+  const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${safePath}`;
   return fetchWithAuth(url, { method: 'GET' });
 };
 
@@ -174,11 +169,26 @@ export const syncFolder = async (syncFolderId, clientFiles = [], deletedFileIds 
 export const getFolderFileList = async (syncFolderId) => {
   const userId = getUserIdFromToken();
   if (!userId) throw new Error('유효한 토큰이 없습니다.');
-  return fetchWithAuth(
+
+  const list = await fetchWithAuth(
     `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files`,
     { method: 'GET' }
   );
+
+  // ── 필터: 빈 string 이거나 "/" 로만 끝나는 항목은 폴더 마커이므로 제거 ──
+  return Array.isArray(list)
+    ? list.filter(f => {
+        const p = f.relativePath || f.originalName || '';
+        return p !== '' && !p.endsWith('/');
+      })
+    : [];
+
+  // return fetchWithAuth(
+  //   `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files`,
+  //   { method: 'GET' }
+  // );
 };
+
 
 /**
  * 개별 파일 메타데이터 조회

@@ -159,12 +159,10 @@ const loadFiles = async () => {
   };
 
   // ── “파일 다운로드” ──
-  const handleDownload = async (fileName, fileId) => {
+  const handleDownload = async (fileName) => {
     try {
-      // fileId 가 있으면 숫자 ID 경로로, 없으면 path 문자열 경로로 호출
-      const blob = (typeof fileId === 'number')
-        ? await downloadFolderFile(id, fileId)
-        : await downloadFolderFile(id, fileName);
+      // 항상 파일의 상대경로 문자열을 서버에 전달
+      const blob = await downloadFolderFile(id, fileName); 
       const buf  = await blob.arrayBuffer();
       // 3) 저장 다이얼로그
       const { filePath } = await dialog.showSaveDialog({
@@ -229,8 +227,7 @@ const loadFiles = async () => {
     menu.append(new MenuItem({ label: '파일 공유',   click: () => alert(`’${name}‘ 공유…`) }));
     menu.append(new MenuItem({ label: '버전 관리',   click: () => alert(`’${name}‘ 버전 관리…`) }));
     menu.append(new MenuItem({ label: '정보 가져오기', click: () => handleInfo(fileName) }));
-    menu.append(new MenuItem({ label: '파일 다운로드', click: () => handleDownload(fileName, fileId) }));
-    // menu.append(new MenuItem({ label: '파일 다운로드', click: () => handleDownload(fileName) }));
+    menu.append(new MenuItem({ label: '파일 다운로드', click: () => handleDownload(fileName) }));
     menu.append(new MenuItem({ label: '파일 삭제',    click: () => handleDelete(fileId) }));
     menu.popup({ window: getCurrentWindow() });
   };
