@@ -14,6 +14,7 @@ import {
   syncFolder,
   uploadFile,
   downloadFolderFile,
+  deleteFolderFile,
 } from './apiService';
 
 export default function SyncManager() {
@@ -150,60 +151,31 @@ export default function SyncManager() {
     ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: rel });
   }  
 
-// // ── (3) 로컬 수정 핸들러 ──
-//   async function handleLocalChange(fullPath, id, root) {
-//     const rel = path.relative(root, fullPath).replace(/\\/g,'/');
-//     // 1) 변경된 파일 하나의 메타만 syncFolder로 보냄
-//     const stat = fs.statSync(fullPath);
-//     const buf  = fs.readFileSync(fullPath);
-//     const meta = [{
-//       originalName:  rel,
-//       relativePath:  rel,
-//       size:          stat.size,
-//       hash:          crypto.createHash('sha256').update(buf).digest('hex'),
-//       mimeType:      mime.lookup(fullPath) || 'application/octet-stream',
-//       lastModified:  new Date(stat.mtimeMs).toISOString()
-//     }];
-
-//     // 2) 서버에 “이 파일 업데이트 해도 되나요?” 요청
-//     let { filesToUpload = [], filesToDownload = [] } = await syncFolder(id, meta, []);
-
-//     // 3) 로컬이 더 최신이면 upload
-//     if (filesToUpload.includes(rel)) {
-//       console.warn(`📁 [SyncManager] IPC 보내기 → sync-file-updated (upload) (folderId=${id}, relativePath=${rel})`);
-//       await uploadFile(id, fullPath);
-
-//       // ▷ 여기서 반드시 메타 동기화 한 번 더
-//       const { filesToUpload: up2 = [], filesToDownload: down2 = [] } = await syncFolder(id, meta, []);
-//       filesToUpload   = up2;
-//       filesToDownload = down2;
-//     }
-
-//     // 4) 서버 쪽이 더 최신이면 download
-//     if (filesToDownload.includes(rel)) {
-//       console.warn(`📁 [SyncManager] IPC 보내기 → sync-file-updated (download) (folderId=${id}, relativePath=${rel})`);
-//       const blob = await downloadFolderFile(id, rel);
-//       const arr  = await blob.arrayBuffer();
-//       fs.writeFileSync(fullPath, Buffer.from(arr));
-//     }
-
-//     // 5) UI 갱신
-//     ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: rel });
-//   }
-
-
 
   // ── (4) 로컬 삭제 핸들러 ──
   async function handleLocalDelete(fullPath, id, root) {
     try {
-      const rel        = path.relative(root, fullPath).replace(/\\/g,'/');
+      let rel        = path.relative(root, fullPath).replace(/\\/g,'/');
       const serverList = await getFolderFileList(id);
-      const meta       = serverList.find(f => f.relativePath === rel);
+      const meta       = serverList.find(f =>
+        f.relativePath === rel ||
+        // 혹시 originalName 만 있는 경우를 대비해
+        f.originalName === rel
+      );
       const fileId     = meta?.id ?? meta?.fileId;
       if (!fileId) return console.warn(`삭제된 파일 : ${rel}`);
-      // syncFolder 에 deletedFileIds 로 전달 → 서버에서도 삭제
-      await syncFolder(id, [], [fileId]);
+      
+      // 서버에 DELETE 요청
+      console.warn(`📁 [SyncManager] 서버에 삭제 요청 → folderId=${id}, fileId=${fileId}`);
+      await deleteFolderFile(id, fileId);
+      
+      // 로컬 FS에서도 즉시 삭제
+      if (fs.existsSync(fullPath)) {
+        fs.unlinkSync(fullPath);
+        console.warn(`📁 [SyncManager] 로컬 파일 삭제 → ${fullPath}`);
+      }
       prevClientMapRef.current[id]?.delete(rel);
+
       console.warn(`📁 [SyncManager] IPC 보내기 → sync-file-deleted (folderId=${id}, relativePath=${rel})`);
       ipcRenderer.send('sync-file-deleted', { folderId: id, relativePath: rel });
     } catch (e) {
