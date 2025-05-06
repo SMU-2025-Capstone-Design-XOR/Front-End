@@ -84,7 +84,7 @@ export const getSyncFolder = async () => {
  * 단일 파일 업로드 (multipart/form-data)
  * POST /users/{userId}/sync-folders/{folderId}/upload
  */
-export const uploadFile = async (syncFolderId, localFilePath) => {
+export const uploadFile = async (syncFolderId, localFilePath, relativePath) => {
   const userId = getUserIdFromToken();
   if (!userId) throw new Error('유효한 토큰이 없습니다.');
 
@@ -99,6 +99,7 @@ export const uploadFile = async (syncFolderId, localFilePath) => {
   // 3) FormData 준비
   const formData = new FormData();
   formData.append('file', blob, fileName);
+  formData.append('relativePath', relativePath);
 
   // 4) fetch
   return fetchWithAuth(
@@ -182,11 +183,6 @@ export const getFolderFileList = async (syncFolderId) => {
         return p !== '' && !p.endsWith('/');
       })
     : [];
-
-  // return fetchWithAuth(
-  //   `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files`,
-  //   { method: 'GET' }
-  // );
 };
 
 

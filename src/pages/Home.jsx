@@ -107,7 +107,11 @@ export default function Home() {
       const { filesToUpload = [], filesToDownload = [] } =
         await syncFolder(created.id, clientFiles, []);
       for (const name of filesToUpload) {
-        await uploadFile(created.id, path.join(targetDir, name));
+        await uploadFile(
+          created.id,
+          path.join(targetDir, name),
+          name
+        );
       }
       for (const name of filesToDownload) {
         const blob = await downloadFolderFile(created.id, name);

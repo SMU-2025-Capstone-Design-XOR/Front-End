@@ -102,7 +102,7 @@ export default function SyncManager() {
       const { filesToUpload = [] } = await syncFolder(id, meta, []);
       if (filesToUpload.includes(rel)) {
         console.warn(`📁 [SyncManager] IPC 보내기 → sync-file-added (folderId=${id}, relativePath=${rel})`);
-        await uploadFile(id, fullPath);
+        await uploadFile(id, fullPath, rel);
         // notify UI
         ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
       }
@@ -124,6 +124,7 @@ export default function SyncManager() {
     const meta = [{
       originalName: path.basename(fullPath),
       relativePath: rel,
+      // relativePath,
       size:         stat.size,
       hash:         crypto.createHash('sha256').update(buf).digest('hex'),
       mimeType:     mime.lookup(fullPath) || 'application/octet-stream',
@@ -134,11 +135,11 @@ export default function SyncManager() {
   
     // 로컬이 더 최신→업로드
     if (filesToUpload.includes(rel)) {
-      await uploadFile(id, fullPath);
-      // 업로드 후 한 번 더 메타 반영
-      const { filesToUpload: up2 = [], filesToDownload: down2 = [] } = await syncFolder(id, meta, []);
-      filesToUpload   = up2;
-      filesToDownload = down2;
+      await uploadFile(id, fullPath, rel);
+      // ── 여기서 반드시 한 번 더 syncFolder 호출 ──
+      const second = await syncFolder(id, meta, []);
+      filesToUpload   = second.filesToUpload || [];
+      filesToDownload = second.filesToDownload || [];
     }
   
     // 서버가 더 최신→다운로드
