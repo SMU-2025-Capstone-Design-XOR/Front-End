@@ -64,7 +64,7 @@ const loadFiles = async () => {
                   : f.originalName;
 
         return {
-          fileId:   f.id,
+          fileId:   f.id ?? f.fileId,
           fileName: rel,       // 컨텍스트 메뉴나 다운로드 시 URL 파라미터로 씀
           name:     f.originalName  // 화면에 뿌려 줄 텍스트
         };
@@ -80,41 +80,6 @@ const loadFiles = async () => {
     alert('파일 목록 조회 실패');
   }
 };
-
-
-  // // ── 파일 목록 로드 + 매핑 로직을 함수로 분리 ──
-  // const loadFiles = async () => {
-  //   try {
-  //     const files = await getFolderFileList(id);
-  //     let mapped = Array.isArray(files)
-  //       ? files
-  //           // .filter(f => typeof f === 'object' && (f.id != null || f.relativePath) && f.relativePath !== '.DS_Store')
-  //           .filter(f =>
-  //               typeof f === 'object' &&
-  //               (f.id != null || f.relativePath) &&
-  //               !f.relativePath.startsWith('.')             // 숨김파일 전부 제거 
-  //            )
-  //           .map(f => ({
-  //             fileId:   f.id != null ? f.id : f.relativePath,
-  //             fileName: f.relativePath || f.id,
-  //             name:     f.originalName || f.relativePath || f.id
-  //           }))
-  //       : [];
-
-  //     // 파일 이름 기준으로 중복 제거 (맨 마지막 항목만 남김)
-  //     const seen = new Map();
-  //     mapped.forEach(item => {
-  //       seen.set(item.fileName, item);
-  //     });
-  //     mapped = Array.from(seen.values());
-
-  //     setFileList(mapped);
-  //     console.log('[getFolderFileList 응답]', files);
-  //   } catch (err) {
-  //     console.error(err);
-  //     alert('파일 목록 조회 실패');
-  //   }
-  // };
 
   // ── 1) ID 변경 시(=다른 폴더 진입) 목록 로드 ──
   useEffect(() => {
@@ -194,19 +159,24 @@ const loadFiles = async () => {
   };
 
   // ── “파일 다운로드” ──
-  const handleDownload = async (fileName) => {
+  const handleDownload = async (fileName, fileId) => {
     try {
-      const blob = await downloadFolderFile(id, fileName);
+      // fileId 가 있으면 숫자 ID 경로로, 없으면 path 문자열 경로로 호출
+      const blob = (typeof fileId === 'number')
+        ? await downloadFolderFile(id, fileId)
+        : await downloadFolderFile(id, fileName);
       const buf  = await blob.arrayBuffer();
+      // 3) 저장 다이얼로그
       const { filePath } = await dialog.showSaveDialog({
         defaultPath: path.join(folderPath, fileName)
       });
       if (!filePath) return;
+
       fs.writeFileSync(filePath, Buffer.from(buf));
       alert('다운로드 완료!');
     } catch (err) {
       console.error(err);
-      alert('다운로드 중 오류');
+      alert('다운로드 중 오류: ' + err.message);
     }
   };
 
@@ -259,7 +229,8 @@ const loadFiles = async () => {
     menu.append(new MenuItem({ label: '파일 공유',   click: () => alert(`’${name}‘ 공유…`) }));
     menu.append(new MenuItem({ label: '버전 관리',   click: () => alert(`’${name}‘ 버전 관리…`) }));
     menu.append(new MenuItem({ label: '정보 가져오기', click: () => handleInfo(fileName) }));
-    menu.append(new MenuItem({ label: '파일 다운로드', click: () => handleDownload(fileName) }));
+    menu.append(new MenuItem({ label: '파일 다운로드', click: () => handleDownload(fileName, fileId) }));
+    // menu.append(new MenuItem({ label: '파일 다운로드', click: () => handleDownload(fileName) }));
     menu.append(new MenuItem({ label: '파일 삭제',    click: () => handleDelete(fileId) }));
     menu.popup({ window: getCurrentWindow() });
   };

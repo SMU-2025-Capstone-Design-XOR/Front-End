@@ -81,11 +81,11 @@ export default function Home() {
 
     try {
       // 3) 서버에 등록할 때는 targetDir 사용
+      const normalizedPath = targetDir.replace(/^\/+/, '');
       const created = await sendSyncFolder(targetDir);
 
       // 4) 로컬 메타 수집도 targetDir 에서
       const clientFiles = fs.readdirSync(targetDir)
-        // .filter(name => fs.statSync(path.join((targetDir.file), name)).isFile())
         .filter(name => fs.statSync(path.join(targetDir, name)).isFile())
         .map(name => {
           const full = path.join(targetDir, name);
@@ -98,7 +98,7 @@ export default function Home() {
             relativePath: name,
             size: stat.size,
             hash,
-            mimeType: mime.lookup(full) || 'application/octet-stream',
+            mimeType: mime.lookup(full) || 'application/octet‑stream',
             lastModified: new Date(stat.mtimeMs).toISOString()
           };
         });

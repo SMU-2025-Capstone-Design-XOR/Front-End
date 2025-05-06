@@ -115,16 +115,25 @@ export const uploadFile = async (syncFolderId, localFilePath) => {
 /**
  * 단일 파일 다운로드
  */
-export const downloadFolderFile = async (syncFolderId, relativePath) => {
+export const downloadFolderFile = async (syncFolderId, fileIdOrPath) => {
   const userId = getUserIdFromToken();
   if (!userId) throw new Error('유효한 토큰이 없습니다.');
-  const safePath = relativePath
-    .split('/')
-    .map(encodeURIComponent)
-    .join('/');
-  const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${safePath}`;
+
+  let url;
+  // 숫자 ID 형식이면 fileId 경로로 요청
+  if (typeof fileIdOrPath === 'number' || /^\d+$/.test(String(fileIdOrPath))) {
+    url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${fileIdOrPath}`;
+  } else {
+    // 그 외엔 원래 relativePath 방식
+    const safePath = String(fileIdOrPath)
+      .split('/')
+      .map(encodeURIComponent)
+      .join('/');
+    url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${safePath}`;
+  }
   return fetchWithAuth(url, { method: 'GET' });
 };
+
 
 /**
  * 싱크 폴더 삭제
@@ -173,22 +182,33 @@ export const getFolderFileList = async (syncFolderId) => {
 
 /**
  * 개별 파일 메타데이터 조회
- * GET /users/{userId}/sync-folders/{folderId}/files/{fileName}/meta
+ * (서버가 /files/{fileName}/meta 를 지원하지 않으므로,
+ *  파일 목록에서 찾아서 리턴합니다.)
+ *
+ * @param {string|number} syncFolderId
+ * @param {string} fileName  상대경로 또는 originalName
  */
-export const getFolderFileMeta = async (syncFolderId, relativePath) => {
+export const getFolderFileMeta = async (syncFolderId, fileName) => {
   const userId = getUserIdFromToken();
   if (!userId) throw new Error('유효한 토큰이 없습니다.');
-  const safePath = relativePath
-    .split('/')
-    .map(encodeURIComponent)
-    .join('/');
-    const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${safePath}/meta`;
 
-  return fetchWithAuth(
-    url,
-    { method: 'GET' }
+  // 1) 전체 리스트 조회
+  const list = await getFolderFileList(syncFolderId);
+
+  // 2) 원하는 파일 찾기
+  const meta = list.find(f =>
+    (f.relativePath === fileName) ||
+    (f.originalName === fileName)
   );
+  if (!meta) {
+    throw new Error(`파일 메타를 찾을 수 없습니다: ${fileName}`);
+  }
+
+  // 3) 그대로 반환
+  // return meta;
+  return { ...meta, id: meta.id ?? meta.fileId};
 };
+
 
 /**
  * 폴더 내 개별 파일 삭제
