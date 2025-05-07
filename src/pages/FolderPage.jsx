@@ -8,12 +8,14 @@ const { ipcRenderer } = window.require('electron');
 import folderIcon from '../assets/Home/folder.svg';
 import personIcon from '../assets/Home/person-24.svg';
 import { UserContextMenu } from '../components/UserContextMenu';
+import FolderContextMenu from '../components/FolderContextMenu';
 
 import {
   getFolderFileList,
   getFolderFileMeta,
   downloadFolderFile,
-  deleteFolderFile
+  deleteFolderFile,
+  deleteSyncFolder
 } from '../apiService';
 
 const fs     = window.require('fs');
@@ -261,6 +263,35 @@ export default function FolderPage() {
     }
   };
 
+// ── 폴더 컨텍스트 메뉴 상태 관리 ──
+const [ctxMenu, setCtxMenu] = useState({ visible: false, x: 0, y: 0, folderId: null });
+
+const showCtx = (id) => (e) => {
+  e.preventDefault();
+  setCtxMenu({ visible: true, x: e.clientX, y: e.clientY, folderId: id });
+};
+
+const handlefoldInfo = () => {
+  alert(`Folder ID: ${ctxMenu.folderId}`);
+  setCtxMenu((m) => ({ ...m, visible: false }));
+};
+
+const handlefoldDelete = async () => {
+  if (!window.confirm('삭제하시겠습니까?')) return setCtxMenu((m) => ({ ...m, visible: false }));
+  try {
+    await deleteSyncFolder(id, ctxMenu.folderId);
+    alert('폴더 삭제 완료');
+    loadFiles(currentPath); // 폴더 목록 갱신
+  } catch (err) {
+    console.error('삭제 실패:', err);
+    alert('폴더 삭제 중 오류가 발생했습니다.');
+  }
+  setCtxMenu((m) => ({ ...m, visible: false }));
+};
+
+
+
+
   // ── 우클릭 컨텍스트 메뉴 ──
   const showFileMenu = (e, { fileId, fileName, name }) => {
     e.preventDefault();
@@ -281,7 +312,6 @@ export default function FolderPage() {
         padding: '0 16px', height: '72px',
         backgroundColor:'#f2f2f2', borderBottom:'1px solid #dee5ed'
       }}>
-        {/* <button onClick={() => navigate(-1)} */}
         <button onClick={handleBack} style={{ fontSize:'24px', marginRight:'16px', background:'none', border:'none', cursor:'pointer' }}>←</button>
         <div style={{ flexGrow:1, fontWeight:'bold', fontSize:'18px' }}>
           {folderPath}
@@ -309,7 +339,8 @@ export default function FolderPage() {
           <div
             key={`${item.fileId}__${item.fileName}`}  /* fileId 와 fileName 을 합쳐서 유니크 key */
             onDoubleClick={() => handleDoubleClick(item)}
-            onContextMenu={e => showFileMenu(e, item)}
+            // onContextMenu={e => showFileMenu(e, item)}
+            onContextMenu={item.isDirectory ? showCtx(item.fileId) : (e) => showFileMenu(e, item)}
             // style={{ display:'flex', alignItems:'center', padding:'8px 0' }}
             style={{ display:'flex', alignItems:'center', padding:'8px 0', cursor: item.isDirectory ? 'pointer' : 'default' }}
           >
@@ -319,6 +350,17 @@ export default function FolderPage() {
           </div>
         ))}
       </main>
+
+      {/* FolderContextMenu */}
+      <FolderContextMenu
+        visible={ctxMenu.visible}
+        x={ctxMenu.x}
+        y={ctxMenu.y}
+        onInfo={handlefoldInfo}
+        onDelete={handlefoldDelete}
+      />
     </div>
+
+    
   );
 }
