@@ -43,48 +43,84 @@ export default function FolderPage() {
 
   // ── 파일 리스트 상태 ──
   const [fileList, setFileList] = useState([]);
+  const [currentPath, setCurrentPath] = useState('');
 
-// ── 파일 목록 로드 + 매핑 ──
-const loadFiles = async () => {
-  try {
-    const files = await getFolderFileList(id);
-    if (!Array.isArray(files)) return setFileList([]);
-
-    const mapped = files
-      // (1) originalName 이 있고, 숨김 파일이 아니어야 함
-      .filter(f =>
+  const loadFiles = async (subPath = '') => {
+    try {
+      const files = await getFolderFileList(id);
+      const filteredFiles = files.filter(f => 
         typeof f === 'object' &&
         (f.id != null || f.originalName) &&
         !f.originalName.startsWith('.')
-      )
-      .map(f => {
-        // relativePath 가 빈 문자열이거나 undefined 면 originalName 으로 대체
-        const rel = f.relativePath && f.relativePath.trim()
-                  ? f.relativePath
-                  : f.originalName;
+      );
 
+      const mapped = filteredFiles.map(f => {
+        const rel = f.relativePath?.trim() || f.originalName;
         return {
-          fileId:   f.id ?? f.fileId,
-          fileName: rel,       // 컨텍스트 메뉴나 다운로드 시 URL 파라미터로 씀
-          name:     f.originalName  // 화면에 뿌려 줄 텍스트
+          fileId: f.id ?? f.fileId,
+          fileName: rel,
+          name: f.originalName,
+          isDirectory: f.isDirectory || false
         };
       });
 
-    // 중복 제거 (fileName 은 이제 항상 string 이므로 안정적)
-    const seen = new Map();
-    mapped.forEach(item => seen.set(item.fileName, item));
-    setFileList(Array.from(seen.values()));
-    console.log('[getFolderFileList 응답]', files);
-  } catch (err) {
-    console.error(err);
-    alert('파일 목록 조회 실패');
-  }
-};
+      // 현재 경로(subPath) 기준으로 서브폴더 추출
+      const dirSet = new Set();
+      mapped.forEach(item => {
+        const rel = item.fileName;
+        const prefix = subPath ? subPath + '/' : '';
+        if (!rel.startsWith(prefix)) return;
+        const remainder = rel.slice(prefix.length);
+        const segments = remainder.split('/');
+        if (segments.length > 1) {
+          dirSet.add(segments[0]);
+        }
+      });
+      const dirItems = Array.from(dirSet).map(name => ({
+        fileId: `dir__${name}`,
+        fileName: subPath ? `${subPath}/${name}` : name,
+        name,
+        isDirectory: true,
+      }));
+
+      // 파일만 필터링
+      const fileItems = mapped.filter(item => {
+        const rel = item.fileName;
+        const prefix = subPath ? subPath + '/' : '';
+        if (subPath) {
+          return rel.startsWith(prefix) && !rel.slice(prefix.length).includes('/');
+        }
+        return !rel.includes('/');
+      });
+      
+      setFileList([...dirItems, ...fileItems]);
+      setCurrentPath(subPath);
+    } catch (err) {
+      console.error(err);
+      alert('파일 목록 조회 실패');
+    }
+  };
 
   // ── 1) ID 변경 시(=다른 폴더 진입) 목록 로드 ──
   useEffect(() => {
     loadFiles();
   }, [id]);
+
+  const handleDoubleClick = (item) => {
+    if (item.isDirectory) {
+      const newPath = currentPath ? `${currentPath}/${item.name}` : item.name;
+      loadFiles(newPath);
+    }
+  };
+
+  const handleBack = () => {
+    if (!currentPath) {
+      navigate('/home');
+    } else {
+      const parentPath = currentPath.split('/').slice(0, -1).join('/');
+      loadFiles(parentPath);
+    }
+  };
 
 
   // ── 1‑2) SyncManager 에서 “파일 삭제” 이벤트가 오면 목록 다시 로드 ──
@@ -245,9 +281,8 @@ const loadFiles = async () => {
         padding: '0 16px', height: '72px',
         backgroundColor:'#f2f2f2', borderBottom:'1px solid #dee5ed'
       }}>
-        <button onClick={() => navigate(-1)}
-          style={{ fontSize:'24px', marginRight:'16px', background:'none', border:'none', cursor:'pointer' }}
-        >←</button>
+        {/* <button onClick={() => navigate(-1)} */}
+        <button onClick={handleBack} style={{ fontSize:'24px', marginRight:'16px', background:'none', border:'none', cursor:'pointer' }}>←</button>
         <div style={{ flexGrow:1, fontWeight:'bold', fontSize:'18px' }}>
           {folderPath}
         </div>
@@ -272,13 +307,15 @@ const loadFiles = async () => {
       <main style={{ padding:16, overflowY:'auto', flexGrow:1, background:'#fff' }}>
         {fileList.map(item => (
           <div
-            // key={item.fileId}
             key={`${item.fileId}__${item.fileName}`}  /* fileId 와 fileName 을 합쳐서 유니크 key */
+            onDoubleClick={() => handleDoubleClick(item)}
             onContextMenu={e => showFileMenu(e, item)}
-            style={{ display:'flex', alignItems:'center', padding:'8px 0' }}
+            // style={{ display:'flex', alignItems:'center', padding:'8px 0' }}
+            style={{ display:'flex', alignItems:'center', padding:'8px 0', cursor: item.isDirectory ? 'pointer' : 'default' }}
           >
-            <span style={{ marginRight: 8 }}>📄</span>
+            <span style={{ marginRight: 8 }}>{item.isDirectory ? '📁' : '📄'}</span>
             <span style={{ flexGrow: 1 }}>{item.name}</span>
+            <span style={{ fontSize: '12px', color: '#888' }}>{item.lastModified}</span>
           </div>
         ))}
       </main>
