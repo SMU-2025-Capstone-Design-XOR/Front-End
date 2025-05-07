@@ -80,7 +80,6 @@ export default function SyncManager() {
   // ── (2) 로컬 추가 핸들러 ──
   async function handleLocalAdd(fullPath, id, root) {
     try {
-      // const rel  = path.relative(root, fullPath).replace(/\\/g,'/');
 
       // 1) 상대경로 계산 및 보정
       let rel = path.relative(root, fullPath).replace(/\\/g,'/');
@@ -89,7 +88,6 @@ export default function SyncManager() {
       const stat = fs.statSync(fullPath);
       const buf  = fs.readFileSync(fullPath);
       const meta = [{
-        // originalName: rel,
         originalName: path.basename(fullPath),
         relativePath: rel,
         size: stat.size,
@@ -97,8 +95,6 @@ export default function SyncManager() {
         mimeType: mime.lookup(fullPath) || 'application/octet-stream',
         lastModified: new Date(stat.mtimeMs).toISOString()
       }];
-      // sync → filesToUpload 에 들어오면 업로드
-      // let { filesToUpload = [] } = await syncFolder(id, meta, []);
       const { filesToUpload = [] } = await syncFolder(id, meta, []);
       if (filesToUpload.includes(rel)) {
         console.warn(`📁 [SyncManager] IPC 보내기 → sync-file-added (folderId=${id}, relativePath=${rel})`);
@@ -113,46 +109,46 @@ export default function SyncManager() {
     }
   }
 
-async function handleLocalChange(fullPath, id, root) {
-  // 1) rel 과 미리보기 로깅
-  const rel = path
-    .relative(root, fullPath)
-    .replace(/\\/g, '/')
-    .trim() || path.basename(fullPath);
-  console.warn(`📁 [SyncManager] handleLocalChange 시작 → folderId=${id}, rel=${rel}`);
+  async function handleLocalChange(fullPath, id, root) {
+    // 1) rel 과 미리보기 로깅
+    const rel = path
+      .relative(root, fullPath)
+      .replace(/\\/g, '/')
+      .trim() || path.basename(fullPath);
+    console.warn(`📁 [SyncManager] handleLocalChange 시작 → folderId=${id}, rel=${rel}`);
 
-  // 2) 전체 스냅샷 메타 생성 (originalName==relativePath 로 통일)
-  const clientFiles = buildClientFiles(root).map(f => ({
-    originalName:  f.relativePath,
-    relativePath:  f.relativePath,
-    size:          f.size,
-    hash:          f.hash,
-    mimeType:      f.mimeType,
-    lastModified:  f.lastModified
-  }));
+    // 2) 전체 스냅샷 메타 생성 (originalName==relativePath 로 통일)
+    const clientFiles = buildClientFiles(root).map(f => ({
+      originalName:  f.relativePath,
+      relativePath:  f.relativePath,
+      size:          f.size,
+      hash:          f.hash,
+      mimeType:      f.mimeType,
+      lastModified:  f.lastModified
+    }));
 
-  // 3) 서버에 스냅샷 전달 → 변경 대상 요청
-  let { filesToUpload = [], filesToDownload = [] } =
-    await syncFolder(id, clientFiles, []);
-  console.log(`📁 [SyncManager] syncFolder 응답 →`, { filesToUpload, filesToDownload });
+    // 3) 서버에 스냅샷 전달 → 변경 대상 요청
+    let { filesToUpload = [], filesToDownload = [] } =
+      await syncFolder(id, clientFiles, []);
+    console.log(`📁 [SyncManager] syncFolder 응답 →`, { filesToUpload, filesToDownload });
 
-  // 4) 내 쪽 업데이트가 최신이면 업로드
-  if (filesToUpload.includes(rel)) {
-    console.warn(`📁 [SyncManager] 업로드 대상 → ${rel}`);
-    await uploadFile(id, fullPath, rel);
+    // 4) 내 쪽 업데이트가 최신이면 업로드
+    if (filesToUpload.includes(rel)) {
+      console.warn(`📁 [SyncManager] 업로드 대상 → ${rel}`);
+      await uploadFile(id, fullPath, rel);
+    }
+
+    // 5) 서버 쪽이 최신이면 다운로드
+    if (filesToDownload.includes(rel)) {
+      console.warn(`📁 [SyncManager] 다운로드 대상 → ${rel}`);
+      const blob = await downloadFolderFile(id, rel);
+      const arr  = await blob.arrayBuffer();
+      fs.writeFileSync(fullPath, Buffer.from(arr));
+    }
+
+    // 6) UI 갱신
+    ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: rel });
   }
-
-  // 5) 서버 쪽이 최신이면 다운로드
-  if (filesToDownload.includes(rel)) {
-    console.warn(`📁 [SyncManager] 다운로드 대상 → ${rel}`);
-    const blob = await downloadFolderFile(id, rel);
-    const arr  = await blob.arrayBuffer();
-    fs.writeFileSync(fullPath, Buffer.from(arr));
-  }
-
-  // 6) UI 갱신
-  ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: rel });
-}
 
   // ── (4) 로컬 삭제 핸들러 ──
   async function handleLocalDelete(fullPath, id, root) {
@@ -188,29 +184,39 @@ async function handleLocalChange(fullPath, id, root) {
   // ── (5) 전체 폴더 메타 스캔 ──
   function buildClientFiles(root) {
     const results = [];
-    (function walk(dir) {
-      for (const name of fs.readdirSync(dir)) {
-        const full = path.join(dir, name);
-        const stat = fs.statSync(full);
-        if (stat.isFile()) {
-          const buf = fs.readFileSync(full);
-          const rel = path.relative(root, full).replace(/\\/g,'/');
+  
+    const walk = (currentDir) => {
+      const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+  
+      for (const entry of entries) {
+        const fullPath = path.join(currentDir, entry.name);
+        const stat = fs.statSync(fullPath);
+  
+        if (entry.isFile()) {
+          const buffer = fs.readFileSync(fullPath);
+  
+          const relativePath = path.relative(root, fullPath).replace(/\\/g, '/'); // 윈도우 호환
+          const mimeType = mime.lookup(fullPath) || 'application/octet-stream';
+          const hash = crypto.createHash('sha256').update(buffer).digest('hex');
+  
           results.push({
-            originalName: rel,
-            relativePath: rel,
+            originalName: relativePath,     // 백엔드 기준 이름
+            relativePath: relativePath,     // 실제 업로드 경로
             size: stat.size,
-            hash: crypto.createHash('sha256').update(buf).digest('hex'),
-            mimeType: mime.lookup(full) || 'application/octet-stream',
-            lastModified: new Date(stat.mtimeMs).toISOString()
+            hash: hash,
+            mimeType: mimeType,
+            lastModified: new Date(stat.mtimeMs).toISOString(),
           });
-        } else if (stat.isDirectory()) {
-          walk(full);
+        } else if (entry.isDirectory()) {
+          walk(fullPath); // 재귀 탐색
         }
       }
-    })(root);
+    };
+  
+    walk(root);
     return results;
   }
-
+  
   // ── (6) folders 바뀔 때마다 watcher & polling 세팅 ──
   useEffect(() => {
     // 정리

@@ -148,9 +148,9 @@ const loadFiles = async () => {
 
 
   // ── “정보 가져오기” ──
-  const handleInfo = async (fileName) => {
+  const handleInfo = async (relativePath) => {
     try {
-      const meta = await getFolderFileMeta(id, fileName);
+      const meta = await getFolderFileMeta(id, relativePath);
       alert(JSON.stringify(meta, null, 2));
     } catch (err) {
       console.error(err);
@@ -159,16 +159,21 @@ const loadFiles = async () => {
   };
 
   // ── “파일 다운로드” ──
-  const handleDownload = async (fileName) => {
+  const handleDownload = async (relativePath) => {
     try {
       // 항상 파일의 상대경로 문자열을 서버에 전달
-      const blob = await downloadFolderFile(id, fileName); 
+      const blob = await downloadFolderFile(id, relativePath); 
       const buf  = await blob.arrayBuffer();
       // 3) 저장 다이얼로그
+      const savePath = path.join(folderPath, relativePath)
       const { filePath } = await dialog.showSaveDialog({
-        defaultPath: path.join(folderPath, fileName)
+        defaultPath: savePath
       });
       if (!filePath) return;
+
+      // 하위 폴더가 있다면 디렉토리 생성
+      const dir = path.dirname(filePath);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
       fs.writeFileSync(filePath, Buffer.from(buf));
       alert('다운로드 완료!');
@@ -178,22 +183,22 @@ const loadFiles = async () => {
     }
   };
 
-  const handleDelete = async (fileIdOrName) => {
+  const handleDelete = async (fileIdOrPath) => {
     try {
       let targetId;
       let displayName;
 
       // — 숫자 ID 케이스 —
-      if (typeof fileIdOrName === 'number' || !isNaN(Number(fileIdOrName))) {
-        targetId = Number(fileIdOrName);
+      if (typeof fileIdOrPath === 'number' || !isNaN(Number(fileIdOrPath))) {
+        targetId = Number(fileIdOrPath);
         const item = fileList.find(f => Number(f.fileId) === targetId);
         if (!item) throw new Error('삭제할 파일을 찾을 수 없습니다.');
-        displayName = item.name;
+        displayName = item.fileName;
 
       // — 파일명(문자열) 케이스 —
       } else {
-        displayName = fileIdOrName;
-        const meta = await getFolderFileMeta(id, fileIdOrName);
+        displayName = fileIdOrPath;
+        const meta = await getFolderFileMeta(id, fileIdOrPath);
         // 백엔드가 id 대신 fileId로 내려줄 수도 있어서 둘 다 확인
         targetId = meta.id ?? meta.fileId;
         if (!targetId) throw new Error('메타데이터에서 파일 ID를 찾을 수 없습니다.');
@@ -228,7 +233,7 @@ const loadFiles = async () => {
     menu.append(new MenuItem({ label: '버전 관리',   click: () => alert(`’${name}‘ 버전 관리…`) }));
     menu.append(new MenuItem({ label: '정보 가져오기', click: () => handleInfo(fileName) }));
     menu.append(new MenuItem({ label: '파일 다운로드', click: () => handleDownload(fileName) }));
-    menu.append(new MenuItem({ label: '파일 삭제',    click: () => handleDelete(fileId) }));
+    menu.append(new MenuItem({ label: '파일 삭제',    click: () => handleDelete(fileName) }));
     menu.popup({ window: getCurrentWindow() });
   };
 

@@ -85,23 +85,41 @@ export default function Home() {
       const created = await sendSyncFolder(targetDir);
 
       // 4) 로컬 메타 수집도 targetDir 에서
-      const clientFiles = fs.readdirSync(targetDir)
-        .filter(name => fs.statSync(path.join(targetDir, name)).isFile())
-        .map(name => {
-          const full = path.join(targetDir, name);
-          const stat = fs.statSync(full);
-          const hash = crypto.createHash('sha256')
-                             .update(fs.readFileSync(full))
-                             .digest('hex');
-          return {
-            originalName: name,
-            relativePath: name,
-            size: stat.size,
-            hash,
-            mimeType: mime.lookup(full) || 'application/octet‑stream',
-            lastModified: new Date(stat.mtimeMs).toISOString()
-          };
-        });
+      const walkClientFiles = (root) => {
+        const results = [];
+
+        const walk = (currentDir) => {
+          const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+
+          for (const entry of entries) {
+            const fullPath = path.join(currentDir, entry.name);
+            const stat = fs.statSync(fullPath);
+
+            if (entry.isFile()) {
+              const buffer = fs.readFileSync(fullPath);
+              const relativePath = path.relative(root, fullPath).replace(/\\/g, '/'); // 윈도우 호환
+              const mimeType = mime.lookup(fullPath) || 'application/octet-stream';
+              const hash = crypto.createHash('sha256').update(buffer).digest('hex');
+
+              results.push({
+                originalName: relativePath,
+                relativePath: relativePath,
+                size: stat.size,
+                hash: hash,
+                mimeType: mimeType,
+                lastModified: new Date(stat.mtimeMs).toISOString(),
+              });
+            } else if (entry.isDirectory()) {
+              walk(fullPath); // 하위 폴더 재귀 탐색
+            }
+          }
+        };
+
+        walk(root);
+        return results;
+      };
+
+      const clientFiles = walkClientFiles(targetDir);      
 
       // 5) 초기 sync & 업/다운로드
       const { filesToUpload = [], filesToDownload = [] } =

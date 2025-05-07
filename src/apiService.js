@@ -200,7 +200,6 @@ export const getFolderFileMeta = async (syncFolderId, relativePath) => {
     .map(encodeURIComponent)
     .join('/');
 
-
   const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}` +
               `/files/${safePath}/meta`;
               
