@@ -22,6 +22,7 @@ export default function SyncManager() {
   const watchersRef           = useRef({});
   const intervalsRef          = useRef({});
   const prevClientMapRef      = useRef({}); // { [folderId]: Map<relativePath, FileMeta> }
+  const initialSyncDoneRef    = useRef({}); // Tracks if initial sync is completed per folder
   const navigate              = useNavigate();
 
   // ── Helper: 빈 디렉터리까지 깔끔히 삭제 ──
@@ -60,7 +61,7 @@ export default function SyncManager() {
     };
   }, []);
 
-  // ── (1) 최초 싱크폴더 목록 ──
+  // ── 최초 싱크폴더 목록 ──
   useEffect(() => {
     (async () => {
       try {
@@ -77,7 +78,42 @@ export default function SyncManager() {
     })();
   }, []);
 
-  // ── (2) 로컬 추가 핸들러 ──
+  // ── 전체 폴더 메타 스캔 ──
+  function buildClientFiles(root) {
+    const results = [];
+    const walk = (currentDir) => {
+      const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path.join(currentDir, entry.name);
+        const stat = fs.statSync(fullPath);
+  
+        if (entry.isFile()) {
+          const buffer = fs.readFileSync(fullPath);
+  
+          const relativePath = path.relative(root, fullPath).replace(/\\/g, '/'); // 윈도우 호환
+          const mimeType = mime.lookup(fullPath) || 'application/octet-stream';
+          const hash = crypto.createHash('sha256').update(buffer).digest('hex');
+  
+          results.push({
+            originalName: relativePath,     // 백엔드 기준 이름
+            relativePath: relativePath,     // 실제 업로드 경로
+            size: stat.size,
+            hash: hash,
+            mimeType: mimeType,
+            lastModified: new Date(stat.mtimeMs).toISOString(),
+          });
+        } else if (entry.isDirectory()) {
+          walk(fullPath); // 재귀 탐색
+        }
+      }
+    };
+  
+    walk(root);
+    return results;
+  }
+
+
+  // ── 로컬 추가 핸들러 ──
   async function handleLocalAdd(fullPath, id, root) {
     try {
 
@@ -150,7 +186,7 @@ export default function SyncManager() {
     ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: rel });
   }
 
-  // ── (4) 로컬 삭제 핸들러 ──
+  // ── 로컬 삭제 핸들러 ──
   async function handleLocalDelete(fullPath, id, root) {
     try {
       let rel        = path.relative(root, fullPath).replace(/\\/g,'/');
@@ -181,169 +217,95 @@ export default function SyncManager() {
     }
   }
 
-  // ── (5) 전체 폴더 메타 스캔 ──
-  function buildClientFiles(root) {
-    const results = [];
-  
-    const walk = (currentDir) => {
-      const entries = fs.readdirSync(currentDir, { withFileTypes: true });
-  
-      for (const entry of entries) {
-        const fullPath = path.join(currentDir, entry.name);
-        const stat = fs.statSync(fullPath);
-  
-        if (entry.isFile()) {
-          const buffer = fs.readFileSync(fullPath);
-  
-          const relativePath = path.relative(root, fullPath).replace(/\\/g, '/'); // 윈도우 호환
-          const mimeType = mime.lookup(fullPath) || 'application/octet-stream';
-          const hash = crypto.createHash('sha256').update(buffer).digest('hex');
-  
-          results.push({
-            originalName: relativePath,     // 백엔드 기준 이름
-            relativePath: relativePath,     // 실제 업로드 경로
-            size: stat.size,
-            hash: hash,
-            mimeType: mimeType,
-            lastModified: new Date(stat.mtimeMs).toISOString(),
-          });
-        } else if (entry.isDirectory()) {
-          walk(fullPath); // 재귀 탐색
-        }
-      }
-    };
-  
-    walk(root);
-    return results;
-  }
-  
-  // ── (6) folders 바뀔 때마다 watcher & polling 세팅 ──
+  // Watch folders and poll server
   useEffect(() => {
-    // 정리
+    // Cleanup
     Object.values(watchersRef.current).forEach(w => w.close());
     Object.values(intervalsRef.current).forEach(i => clearInterval(i));
-    watchersRef.current   = {};
-    intervalsRef.current  = {};
+    watchersRef.current = {};
+    intervalsRef.current = {};
     prevClientMapRef.current = {};
+    initialSyncDoneRef.current = {};
 
     folders.forEach(folder => {
       const { id, folderPath: root } = folder;
       prevClientMapRef.current[id] = new Map();
+      initialSyncDoneRef.current[id] = false;
 
-      // (A) 폴링: 오직 서버 변경만 반영
       const doSync = async () => {
-        let all;
+        // Skip if folder removed on server
         try {
-          all = await getSyncFolder();
+          await getSyncFolder();
         } catch (e) {
-          // getSyncFolder 만 404 처리 → 폴더 삭제
           if (e.message.startsWith('HTTP 404')) {
             console.warn(`✂️ [SyncManager] 서버에서 폴더(${id}) 삭제됨 → 로컬에서도 제거`);
             watchersRef.current[id]?.close();
             clearInterval(intervalsRef.current[id]);
-            delete watchersRef.current[id];
-            delete intervalsRef.current[id];
-            delete prevClientMapRef.current[id];
             fs.rmdirSync(root, { recursive: true });
             setFolders(prev => prev.filter(f => f.id !== id));
             return;
-          } else {
-            throw e;
           }
+          throw e;
         }
 
-
-        // 0.5) 로컬 root 경로가 통째로 사라졌다면 → 다시 만들고 전체 다운로드
+        // If local root missing, re-download everything
         if (!fs.existsSync(root)) {
           console.warn(`📁 [SyncManager] 로컬 폴더가 사라졌습니다. 재생성 후 전체 다운로드 → ${root}`);
           fs.mkdirSync(root, { recursive: true });
-          // const serverList = await getFolderFileList(id);
-          // const serverMap  = new Map(serverList.map(f => [f.relativePath, f]));
           const serverList = await getFolderFileList(id);
-          // if relativePath is empty, fall back to originalName
-          const serverMap  = new Map(
-            serverList.map(f => {
-              const relKey = (f.relativePath && f.relativePath.trim())
-                            ? f.relativePath
-                            : f.originalName;
-              return [ relKey, f ];      
-            })
-          );
-          for (const [rel, meta] of serverMap) {
+          for (const f of serverList) {
+            const rel = f.relativePath || f.originalName;
             const blob = await downloadFolderFile(id, rel);
-            const buf  = await blob.arrayBuffer();
-            const full = path.join(root, rel);
-            fs.mkdirSync(path.dirname(full), { recursive: true });
-            fs.writeFileSync(full, Buffer.from(buf));
+            const buf = await blob.arrayBuffer();
+            const dest = path.join(root, rel);
+            fs.mkdirSync(path.dirname(dest), { recursive: true });
+            fs.writeFileSync(dest, Buffer.from(buf));
             ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
           }
-          // 맵 갱신 후 바로 리턴
-          prevClientMapRef.current[id] = new Map(serverMap);
+          initialSyncDoneRef.current[id] = true;
+          prevClientMapRef.current[id] = new Map(serverList.map(f => [f.relativePath || f.originalName, f]));
           return;
         }
-        
-        // (1) 실제 동기화 로직
-        try {
-          const serverList = await getFolderFileList(id);
-          const serverMap  = new Map(
-            serverList.map(f => {
-              const relKey = (f.relativePath && f.relativePath.trim())
-                            ? f.relativePath
-                            : f.originalName;
-              return [ relKey, f ];
-            })
-          );          
-          const localFiles = buildClientFiles(root);
-          const localMap   = new Map(localFiles.map(f => [f.relativePath, f]));
-          // (1) 서버 → 로컬 다운로드
-          for (const [rel, meta] of serverMap) {
-            // 빈 상대경로 건너뛰기
-            if (!rel || typeof rel !== 'string') {
-              console.warn(`[SyncManager] 경로 누락 건너뜀 →`, rel);
-              continue;
-            }
-            if (!localMap.has(rel)) {
-              try {
-                console.warn(`📁 [SyncManager] 파일 다운로드 → ${rel}`);
-                const blob = await downloadFolderFile(id, rel);
-                const buf  = await blob.arrayBuffer();
-                const full = path.join(root, rel);
-                fs.mkdirSync(path.dirname(full), { recursive: true });
-                fs.writeFileSync(full, Buffer.from(buf));
-                ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
-              } catch (err) {
-                console.error(`[SyncManager] "${rel}" 다운로드 실패, 건너뜁니다.`, err);
-                continue;
-              }
-            }
+
+        const serverList = await getFolderFileList(id);
+        const serverMap = new Map(serverList.map(f => [f.relativePath || f.originalName, f]));
+        const localFiles = buildClientFiles(root);
+        const localMap = new Map(localFiles.map(f => [f.relativePath, f]));
+
+        // Download missing files
+        for (const [rel] of serverMap) {
+          if (!localMap.has(rel)) {
+            console.warn(`📁 [SyncManager] 파일 다운로드 → ${rel}`);
+            const blob = await downloadFolderFile(id, rel);
+            const buf = await blob.arrayBuffer();
+            const dest = path.join(root, rel);
+            fs.mkdirSync(path.dirname(dest), { recursive: true });
+            fs.writeFileSync(dest, Buffer.from(buf));
+            ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
           }
-          // (2) 로컬에만 있는 → 삭제
+        }
+
+        // Only delete local files that are not on server AFTER initial sync
+        if (initialSyncDoneRef.current[id]) {
           for (const [rel] of localMap) {
             if (!serverMap.has(rel)) {
-              const full = path.join(root, rel);
-              if (fs.existsSync(full)) {
-                console.warn(`📁 [SyncManager] 파일 삭제 (polling) → ${full}`);
-                fs.unlinkSync(full);
-              }
+              const p = path.join(root, rel);
+              if (fs.existsSync(p)) fs.unlinkSync(p);
+              ipcRenderer.send('sync-file-deleted', { folderId: id, relativePath: rel });
             }
           }
-
-          // 3) 빈 디렉터리 까지 정리
-          cleanupEmptyDirs(root);
-
-          // (3) 갱신된 로컬 맵 저장
-          prevClientMapRef.current[id] = localMap;
-        } catch (e) {
-          // getFolderFileList, buildClientFiles 등 기타 에러
-          console.error(`✖️ [SyncManager] 폴더(${id}) doSync 에러`, e);         
         }
+
+        cleanupEmptyDirs(root);
+        initialSyncDoneRef.current[id] = true;
+        prevClientMapRef.current[id] = localMap;
       };
 
-      // (B) 초기 동기화 + (C) 폴링
       doSync();
-      intervalsRef.current[id] = setInterval(doSync, 5_000);
+      intervalsRef.current[id] = setInterval(doSync, 5000);
 
-      // (D) 로컬 감지
+      // File system watcher
+      // const watcher = chokidar.watch(root, { ignoreInitial: true, depth: Infinity });
       const watcher = chokidar.watch(root, {
         ignored: /(^|[\/\\])\..+|~$|\.swp$/,
         ignoreInitial: true,
@@ -351,12 +313,22 @@ export default function SyncManager() {
         depth: Infinity,
         awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 100 }
       });
+
       watcher
-        .on('add',    p => handleLocalAdd(p, id, root))
-        .on('change', p => handleLocalChange(p, id, root))
-        .on('unlink', p => handleLocalDelete(p, id, root))
-        .on('addDir', p => doSync())
-        .on('unlinkDir', p => doSync());
+      .on('add', p => handleLocalAdd(p, id, root))
+      .on('change', p => handleLocalChange(p, id, root))
+      .on('unlink', p => handleLocalDelete(p, id, root))
+      .on('addDir', p => {
+        doSync();
+        const relDir = path.relative(root, p).replace(/\\/g,'/');
+        ipcRenderer.send('sync-folder-added', { folderId: id, relativePath: relDir });
+      })
+      .on('unlinkDir', p => {
+        doSync();
+        const relDir = path.relative(root, p).replace(/\\/g,'/');
+        ipcRenderer.send('sync-folder-deleted', { folderId: id, relativePath: relDir });
+      });
+
       watchersRef.current[id] = watcher;
     });
 
@@ -365,6 +337,154 @@ export default function SyncManager() {
       Object.values(intervalsRef.current).forEach(i => clearInterval(i));
     };
   }, [folders]);
+  
+  // // ── (6) folders 바뀔 때마다 watcher & polling 세팅 ──
+  // useEffect(() => {
+  //   // 정리
+  //   Object.values(watchersRef.current).forEach(w => w.close());
+  //   Object.values(intervalsRef.current).forEach(i => clearInterval(i));
+  //   watchersRef.current   = {};
+  //   intervalsRef.current  = {};
+  //   prevClientMapRef.current = {};
+  //   initialSyncDoneRef.current = {};
+
+  //   folders.forEach(folder => {
+  //     const { id, folderPath: root } = folder;
+  //     prevClientMapRef.current[id] = new Map();
+  //     initialSyncDoneRef.current[id] = false;
+
+  //     // (A) 폴링: 오직 서버 변경만 반영
+  //     const doSync = async () => {
+  //       try {
+  //         await getSyncFolder();
+  //       } catch (e) {
+  //         // getSyncFolder 만 404 처리 → 폴더 삭제
+  //         if (e.message.startsWith('HTTP 404')) {
+  //           console.warn(`✂️ [SyncManager] 서버에서 폴더(${id}) 삭제됨 → 로컬에서도 제거`);
+  //           watchersRef.current[id]?.close();
+  //           clearInterval(intervalsRef.current[id]);
+  //           delete watchersRef.current[id];
+  //           delete intervalsRef.current[id];
+  //           delete prevClientMapRef.current[id];
+  //           fs.rmdirSync(root, { recursive: true });
+  //           setFolders(prev => prev.filter(f => f.id !== id));
+  //           return;
+  //         } else {
+  //           throw e;
+  //         }
+  //       }
+
+
+  //       // 0.5) 로컬 root 경로가 통째로 사라졌다면 → 다시 만들고 전체 다운로드
+  //       if (!fs.existsSync(root)) {
+  //         console.warn(`📁 [SyncManager] 로컬 폴더가 사라졌습니다. 재생성 후 전체 다운로드 → ${root}`);
+  //         fs.mkdirSync(root, { recursive: true });
+  //         const serverList = await getFolderFileList(id);
+  //         // if relativePath is empty, fall back to originalName
+  //         const serverMap  = new Map(
+  //           serverList.map(f => {
+  //             const relKey = (f.relativePath && f.relativePath.trim())
+  //                           ? f.relativePath
+  //                           : f.originalName;
+  //             return [ relKey, f ];      
+  //           })
+  //         );
+  //         for (const [rel, meta] of serverMap) {
+  //           const blob = await downloadFolderFile(id, rel);
+  //           const buf  = await blob.arrayBuffer();
+  //           const full = path.join(root, rel);
+  //           fs.mkdirSync(path.dirname(full), { recursive: true });
+  //           fs.writeFileSync(full, Buffer.from(buf));
+  //           ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
+  //         }
+  //         // 맵 갱신 후 바로 리턴
+  //         prevClientMapRef.current[id] = new Map(serverMap);
+  //         return;
+  //       }
+        
+  //       // (1) 실제 동기화 로직
+  //       try {
+  //         const serverList = await getFolderFileList(id);
+  //         const serverMap  = new Map(
+  //           serverList.map(f => {
+  //             const relKey = (f.relativePath && f.relativePath.trim())
+  //                           ? f.relativePath
+  //                           : f.originalName;
+  //             return [ relKey, f ];
+  //           })
+  //         );          
+  //         const localFiles = buildClientFiles(root);
+  //         const localMap   = new Map(localFiles.map(f => [f.relativePath, f]));
+  //         // (1) 서버 → 로컬 다운로드
+  //         for (const [rel, meta] of serverMap) {
+  //           // 빈 상대경로 건너뛰기
+  //           if (!rel || typeof rel !== 'string') {
+  //             console.warn(`[SyncManager] 경로 누락 건너뜀 →`, rel);
+  //             continue;
+  //           }
+  //           if (!localMap.has(rel)) {
+  //             try {
+  //               console.warn(`📁 [SyncManager] 파일 다운로드 → ${rel}`);
+  //               const blob = await downloadFolderFile(id, rel);
+  //               const buf  = await blob.arrayBuffer();
+  //               const full = path.join(root, rel);
+  //               fs.mkdirSync(path.dirname(full), { recursive: true });
+  //               fs.writeFileSync(full, Buffer.from(buf));
+  //               ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
+  //             } catch (err) {
+  //               console.error(`[SyncManager] "${rel}" 다운로드 실패, 건너뜁니다.`, err);
+  //               continue;
+  //             }
+  //           }
+  //         }
+  //         // (2) 로컬에만 있는 → 삭제
+  //         for (const [rel] of localMap) {
+  //           if (!serverMap.has(rel)) {
+  //             const full = path.join(root, rel);
+  //             if (fs.existsSync(full)) {
+  //               console.warn(`📁 [SyncManager] 파일 삭제 (polling) → ${full}`);
+  //               fs.unlinkSync(full);
+  //             }
+  //           }
+  //         }
+
+  //         // 3) 빈 디렉터리 까지 정리
+  //         cleanupEmptyDirs(root);
+
+  //         // (3) 갱신된 로컬 맵 저장
+  //         prevClientMapRef.current[id] = localMap;
+  //       } catch (e) {
+  //         // getFolderFileList, buildClientFiles 등 기타 에러
+  //         console.error(`✖️ [SyncManager] 폴더(${id}) doSync 에러`, e);         
+  //       }
+  //     };
+
+  //     // (B) 초기 동기화 + (C) 폴링
+  //     doSync();
+  //     intervalsRef.current[id] = setInterval(doSync, 5_000);
+
+  //     // (D) 로컬 감지
+  //     const watcher = chokidar.watch(root, {
+  //       ignored: /(^|[\/\\])\..+|~$|\.swp$/,
+  //       ignoreInitial: true,
+  //       persistent: true,
+  //       depth: Infinity,
+  //       awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 100 }
+  //     });
+  //     watcher
+  //       .on('add',    p => handleLocalAdd(p, id, root))
+  //       .on('change', p => handleLocalChange(p, id, root))
+  //       .on('unlink', p => handleLocalDelete(p, id, root))
+  //       .on('addDir', p => doSync())
+  //       .on('unlinkDir', p => doSync());
+  //     watchersRef.current[id] = watcher;
+  //   });
+
+  //   return () => {
+  //     Object.values(watchersRef.current).forEach(w => w.close());
+  //     Object.values(intervalsRef.current).forEach(i => clearInterval(i));
+  //   };
+  // }, [folders]);
 
   return null; // UI 없음
 }
