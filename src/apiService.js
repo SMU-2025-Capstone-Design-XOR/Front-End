@@ -198,21 +198,12 @@ export const getFolderFileMeta = async (syncFolderId, fileName) => {
   const userId = getUserIdFromToken();
   if (!userId) throw new Error('유효한 토큰이 없습니다.');
 
-  // 1) 전체 리스트 조회
-  const list = await getFolderFileList(syncFolderId);
+  // 백엔드에 /files/{relativePath}/meta 가 구현되어 있으므로,
+  // 거기로 바로 요청합니다.
+  const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}` +
+              `/files/${encodeURIComponent(relativePath)}/meta`;
+  return fetchWithAuth(url, { method: 'GET' });
 
-  // 2) 원하는 파일 찾기
-  const meta = list.find(f =>
-    (f.relativePath === fileName) ||
-    (f.originalName === fileName)
-  );
-  if (!meta) {
-    throw new Error(`파일 메타를 찾을 수 없습니다: ${fileName}`);
-  }
-
-  // 3) 그대로 반환
-  // return meta;
-  return { ...meta, id: meta.id ?? meta.fileId};
 };
 
 
