@@ -113,45 +113,46 @@ export default function SyncManager() {
     }
   }
 
-  async function handleLocalChange(fullPath, id, root) {
-    // (중략) rel 계산은 동일하게 처리
-    let rel = path.relative(root, fullPath).replace(/\\/g,'/');
-    if (!rel) rel = path.basename(fullPath);
-    
-    // 2) 메타 생성 (백엔드가 기대하는 최소 필드만)
-    const stat = fs.statSync(fullPath);
-    const buf  = fs.readFileSync(fullPath);
-    const meta = [{
-      originalName: path.basename(fullPath),
-      relativePath: rel,
-      // relativePath,
-      size:         stat.size,
-      hash:         crypto.createHash('sha256').update(buf).digest('hex'),
-      mimeType:     mime.lookup(fullPath) || 'application/octet-stream',
-      lastModified: new Date(stat.mtimeMs).toISOString()
-    }];    
+async function handleLocalChange(fullPath, id, root) {
+  // 1) rel 과 미리보기 로깅
+  const rel = path
+    .relative(root, fullPath)
+    .replace(/\\/g, '/')
+    .trim() || path.basename(fullPath);
+  console.warn(`📁 [SyncManager] handleLocalChange 시작 → folderId=${id}, rel=${rel}`);
 
-    let { filesToUpload = [], filesToDownload = [] } = await syncFolder(id, meta, []);
-  
-    // 로컬이 더 최신→업로드
-    if (filesToUpload.includes(rel)) {
-      await uploadFile(id, fullPath, rel);
-      // ── 여기서 반드시 한 번 더 syncFolder 호출 ──
-      const second = await syncFolder(id, meta, []);
-      filesToUpload   = second.filesToUpload || [];
-      filesToDownload = second.filesToDownload || [];
-    }
-  
-    // 서버가 더 최신→다운로드
-    if (filesToDownload.includes(rel)) {
-      const blob = await downloadFolderFile(id, rel);
-      const arr  = await blob.arrayBuffer();
-      fs.writeFileSync(fullPath, Buffer.from(arr));
-    }
-  
-    ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: rel });
-  }  
+  // 2) 전체 스냅샷 메타 생성 (originalName==relativePath 로 통일)
+  const clientFiles = buildClientFiles(root).map(f => ({
+    originalName:  f.relativePath,
+    relativePath:  f.relativePath,
+    size:          f.size,
+    hash:          f.hash,
+    mimeType:      f.mimeType,
+    lastModified:  f.lastModified
+  }));
 
+  // 3) 서버에 스냅샷 전달 → 변경 대상 요청
+  let { filesToUpload = [], filesToDownload = [] } =
+    await syncFolder(id, clientFiles, []);
+  console.log(`📁 [SyncManager] syncFolder 응답 →`, { filesToUpload, filesToDownload });
+
+  // 4) 내 쪽 업데이트가 최신이면 업로드
+  if (filesToUpload.includes(rel)) {
+    console.warn(`📁 [SyncManager] 업로드 대상 → ${rel}`);
+    await uploadFile(id, fullPath, rel);
+  }
+
+  // 5) 서버 쪽이 최신이면 다운로드
+  if (filesToDownload.includes(rel)) {
+    console.warn(`📁 [SyncManager] 다운로드 대상 → ${rel}`);
+    const blob = await downloadFolderFile(id, rel);
+    const arr  = await blob.arrayBuffer();
+    fs.writeFileSync(fullPath, Buffer.from(arr));
+  }
+
+  // 6) UI 갱신
+  ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: rel });
+}
 
   // ── (4) 로컬 삭제 핸들러 ──
   async function handleLocalDelete(fullPath, id, root) {

@@ -162,7 +162,6 @@ export const syncFolder = async (syncFolderId, clientFiles = [], deletedFileIds 
   );
 };
 
-
 /**
  * 폴더 내 파일 목록 조회
  * GET /users/{userId}/sync-folders/{folderId}/files
@@ -188,20 +187,23 @@ export const getFolderFileList = async (syncFolderId) => {
 
 /**
  * 개별 파일 메타데이터 조회
- * (서버가 /files/{fileName}/meta 를 지원하지 않으므로,
- *  파일 목록에서 찾아서 리턴합니다.)
  *
- * @param {string|number} syncFolderId
- * @param {string} fileName  상대경로 또는 originalName
+ * @param {string|number} syncFolderId  싱크 폴더 ID
+ * @param {string}         relativePath 파일의 상대경로 (subdir/to/file.txt)
  */
-export const getFolderFileMeta = async (syncFolderId, fileName) => {
+export const getFolderFileMeta = async (syncFolderId, relativePath) => {
   const userId = getUserIdFromToken();
   if (!userId) throw new Error('유효한 토큰이 없습니다.');
 
-  // 백엔드에 /files/{relativePath}/meta 가 구현되어 있으므로,
-  // 거기로 바로 요청합니다.
+  const safePath = relativePath
+    .split('/')
+    .map(encodeURIComponent)
+    .join('/');
+
+
   const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}` +
-              `/files/${encodeURIComponent(relativePath)}/meta`;
+              `/files/${safePath}/meta`;
+              
   return fetchWithAuth(url, { method: 'GET' });
 
 };
