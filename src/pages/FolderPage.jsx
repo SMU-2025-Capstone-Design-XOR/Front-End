@@ -54,7 +54,6 @@ export default function FolderPage() {
     try {
       console.log(`🔷 loadFiles - 현재 경로: '${subPath}' (ID: ${id})`);
       const files = await getFolderFileList(id);
-      // console.log('📂 loadFiles - 서버에서 받아온 파일 목록:', JSON.stringify(files, null, 2));
       const filteredFiles = files.filter(f => 
         typeof f === 'object' &&
         (f.id != null || f.originalName) &&
@@ -67,7 +66,7 @@ export default function FolderPage() {
           fileId: f.id ?? f.fileId,
           fileName: rel,
           name: f.originalName,
-          isDirectory: f.isDirectory || false
+          isDirectory: rel.endsWith('/')
         };
       });
 
@@ -110,6 +109,32 @@ export default function FolderPage() {
 
   // ── 1) ID 변경 시(=다른 폴더 진입) 목록 로드 ──
   useEffect(() => {
+    const logInitialFiles = async () => {
+      try {
+        console.log(`📂 폴더 ID ${id} 진입 - 폴더 내 파일 및 폴더 목록:`);
+  
+        const files = await getFolderFileList(id);
+        const filteredFiles = files.filter(f => 
+          typeof f === 'object' &&
+          (f.id != null || f.originalName) &&
+          !f.originalName.startsWith('.')
+        );
+  
+        const mapped = filteredFiles.map(f => ({
+          fileId: f.id ?? f.fileId,
+          fileName: f.relativePath?.trim() || f.originalName,
+          isDirectory: f.isDirectory || false,
+          name: f.originalName,
+        }));
+  
+        console.log('초기 파일/폴더 목록:', JSON.stringify(mapped, null, 2));
+  
+      } catch (err) {
+        console.error('초기 폴더 진입 시 파일 목록 조회 실패:', err);
+      }
+    };
+  
+    logInitialFiles();
     loadFiles();
   }, [id]);
 
