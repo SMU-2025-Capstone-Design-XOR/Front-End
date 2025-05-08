@@ -193,47 +193,120 @@ export default function SyncManager() {
     }
   }
 
-  // ── 로컬 파일 변경 핸들러 ──
-  async function handleLocalChange(fullPath, id, root) {
-    // 1) rel 과 미리보기 로깅
-    const rel = path
-      .relative(root, fullPath)
-      .replace(/\\/g, '/')
-      .trim() || path.basename(fullPath);
-    console.warn(`📁 [SyncManager] handleLocalChange 시작 → folderId=${id}, rel=${rel}`);
+// ── 로컬 파일 변경 핸들러 ──
+const handleLocalChange = async (filePath, id, root) => {
+  try {
+    const relPath = path.relative(root, filePath).replace(/\\/g, '/').trim() || path.basename(filePath);
+    console.warn(`📁 [SyncManager] handleLocalChange 시작 → folderId=${id}, relPath=${relPath}`);
 
-    // 2) 전체 스냅샷 메타 생성 (originalName==relativePath 로 통일)
-    const clientFiles = buildClientFiles(root).map(f => ({
-      originalName:  f.relativePath,
-      relativePath:  f.relativePath,
-      size:          f.size,
-      hash:          f.hash,
-      mimeType:      f.mimeType,
-      lastModified:  f.lastModified
-    }));
+    // 1. 변경된 파일의 메타데이터 계산
+    const stat = fs.statSync(filePath);
+    const buf = fs.readFileSync(filePath);
+    const changedFileMeta = {
+      originalName: path.basename(filePath),
+      relativePath: relPath,
+      size: stat.size,
+      hash: crypto.createHash('sha256').update(buf).digest('hex'),
+      mimeType: mime.lookup(filePath) || 'application/octet-stream',
+      lastModified: new Date(stat.mtimeMs).toISOString(),
+    };
 
-    // 3) 서버에 스냅샷 전달 → 변경 대상 요청
-    let { filesToUpload = [], filesToDownload = [] } =
-      await syncFolder(id, clientFiles, []);
-    console.log(`📁 [SyncManager] syncFolder 응답 →`, { filesToUpload, filesToDownload });
+    // 2. 전체 로컬 파일 메타데이터 생성
+    const localFiles = buildClientFiles(root);
 
-    // 4) 내 쪽 업데이트가 최신이면 업로드
-    if (filesToUpload.includes(rel)) {
-      console.warn(`📁 [SyncManager] 업로드 대상 → ${rel}`);
-      await uploadFile(id, fullPath, rel);
+    // 3. 서버의 파일 메타데이터 가져오기
+    const serverFiles = await getFolderFileList(id);
+    const serverFileMap = new Map(serverFiles.map(f => [f.relativePath, f]));
+
+    console.log('📁 [SyncManager] 서버 파일 목록:', serverFiles);
+
+    // 4. 변경된 파일이 서버에 존재하는지 확인
+    const serverFileMeta = serverFileMap.get(relPath);
+
+    if (serverFileMeta) {
+      console.log('[해시 비교]', {
+        path: changedFileMeta.relativePath,
+        prevHash: serverFileMeta.hash,
+        newHash: changedFileMeta.hash,
+      });
+
+      // 4-1. 파일이 존재하고, 해시가 다른 경우 → 서버에 덮어쓰기
+      if (changedFileMeta.hash !== serverFileMeta.hash) {
+        console.warn(`📁 [SyncManager] 파일 업데이트 필요: ${relPath}`);
+        await uploadFile(id, filePath, relPath);
+
+        // UI 갱신
+        ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: relPath });
+      }
+    } else {
+      // 4-2. 서버에 없는 경우 → 신규 업로드
+      console.warn(`📁 [SyncManager] 신규 파일 발견 → ${relPath}`);
+      await uploadFile(id, filePath, relPath);
+
+      // UI 갱신
+      ipcRenderer.send('sync-file-added', { folderId: id, relativePath: relPath });
     }
 
-    // 5) 서버 쪽이 최신이면 다운로드
-    if (filesToDownload.includes(rel)) {
-      console.warn(`📁 [SyncManager] 다운로드 대상 → ${rel}`);
-      const blob = await downloadFolderFile(id, rel);
-      const arr  = await blob.arrayBuffer();
-      fs.writeFileSync(fullPath, Buffer.from(arr));
-    }
+    // 5. 이전 메타데이터 갱신
+    prevClientMapRef.current[id]?.set(relPath, changedFileMeta);
 
-    // 6) UI 갱신
-    ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: rel });
+  } catch (e) {
+    console.error(`handleLocalChange[${id}]`, e);
   }
+};
+
+
+//   let previousClientFiles = [];
+//  // 로컬 변경 핸들러
+//   const handleLocalChange = async (filePath, id, root) => {
+//     const relPath = path.relative(root, filePath).replace(/\\/g, '/').trim() || path.basename(filePath);
+//     console.warn(`📁 [SyncManager] handleLocalChange 시작 → folderId=${id}, rel=${relPath}`);
+    
+
+//     // 1. 전체 메타데이터 재생성
+//     const clientFiles = await buildClientFiles(root);
+  
+//     // 2. 변경된 파일 메타데이터 찾기
+//     const changedFile = clientFiles.find(f => f.relativePath === relPath);
+//     const prevFile = previousClientFiles.find(f => f.relativePath === relPath);
+  
+//     if (changedFile && prevFile) {
+//       console.log('[해시 비교]', {
+//         path: changedFile.relativePath,
+//         prevHash: prevFile.hash,
+//         newHash: changedFile.hash,
+//       });
+//     } else {
+//       console.log('[변경 감지] 변경된 파일이 신규 또는 삭제됨:', changedFile?.relativePath || relPath);
+//     }
+  
+//     // 3. 서버와 동기화 비교
+//     const { filesToUpload = [], filesToDownload = [] } = await syncFolder(id, clientFiles, []);
+//     console.log(`📁 [SyncManager] syncFolder 응답 →`, { filesToUpload, filesToDownload });
+  
+//     const fullPath = path.join(root, relPath);
+  
+//     // 4. 업로드가 필요한 경우
+//     if (filesToUpload.includes(relPath) && changedFile && fs.existsSync(fullPath)) {
+//       console.warn(`📁 [SyncManager] 업로드 대상 → ${relPath}`);
+//       await uploadFile(id, fullPath, relPath);
+//     }
+  
+//     // 5. 다운로드가 필요한 경우
+//     if (filesToDownload.includes(relPath)) {
+//       console.warn(`📁 [SyncManager] 다운로드 대상 → ${relPath}`);
+//       const blob = await downloadFolderFile(id, relPath);
+//       const arr = await blob.arrayBuffer();
+//       fs.writeFileSync(fullPath, Buffer.from(arr));
+//     }
+  
+//     // 6. UI 갱신
+//     ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: relPath });
+  
+//     // 7. 이전 상태 갱신
+//     previousClientFiles = clientFiles;
+//   };
+
 
   // ── 로컬 파일 삭제 핸들러 ──
   async function handleLocalDelete(fullPath, id, root) {
@@ -365,7 +438,7 @@ export default function SyncManager() {
                     fs.unlinkSync(fullPath);
                     ipcRenderer.send('sync-file-deleted', { folderId: id, relativePath: rel });
                   }
-                                    
+
                 } else {
                   console.error(`📁 [SyncManager] 다운로드 실패: ${rel}`, e);
                 }
@@ -397,7 +470,9 @@ export default function SyncManager() {
 
       watcher
       .on('add', p => handleLocalAdd(p, id, root))
-      .on('change', p => handleLocalChange(p, id, root))
+      .on('change', p => {
+        setTimeout(() => handleLocalChange(p, id, root), 250); // 200ms 지연
+      })      
       .on('unlink', p => handleLocalDelete(p, id, root))
       .on('addDir', p => {
         doSync();

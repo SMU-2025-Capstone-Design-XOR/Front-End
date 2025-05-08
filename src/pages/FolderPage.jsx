@@ -70,6 +70,7 @@ export default function FolderPage() {
           isDirectory: f.type === 'folder' || rel.endsWith('/')
         };
       });
+      console.log('🔷 [mapped → UI에 사용할 형태]', mapped);
 
       // 현재 경로(subPath) 기준으로 서브폴더 추출
       const dirSet = new Set();
@@ -112,8 +113,7 @@ export default function FolderPage() {
   useEffect(() => {
     const logInitialFiles = async () => {
       try {
-        console.log(`📂 폴더 ID ${id} 진입 - 폴더 내 파일 및 폴더 목록:`);
-  
+
         const files = await getFolderFileList(id);
         const filteredFiles = files.filter(f => 
           typeof f === 'object' &&
@@ -128,16 +128,17 @@ export default function FolderPage() {
           name: f.originalName,
         }));
   
-        console.log('초기 파일/폴더 목록:', JSON.stringify(mapped, null, 2));
+        // console.log('초기 파일/폴더 목록:', JSON.stringify(mapped, null, 2));
   
       } catch (err) {
         console.error('초기 폴더 진입 시 파일 목록 조회 실패:', err);
       }
     };
-  
+
     logInitialFiles();
     loadFiles();
   }, [id]);
+
 
   const handleDoubleClick = (item) => {
     if (item.isDirectory) {
