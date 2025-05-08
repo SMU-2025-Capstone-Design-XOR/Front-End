@@ -63,10 +63,11 @@ export default function FolderPage() {
       const mapped = filteredFiles.map(f => {
         const rel = f.relativePath?.trim() || f.originalName;
         return {
-          fileId: f.id ?? f.fileId,
+          // fileId: f.id ?? f.fileId,
+          fileId: f.fileId ?? f.id,
           fileName: rel,
           name: f.originalName,
-          isDirectory: rel.endsWith('/')
+          isDirectory: f.type === 'folder' || rel.endsWith('/')
         };
       });
 
@@ -83,7 +84,7 @@ export default function FolderPage() {
         }
       });
       const dirItems = Array.from(dirSet).map(name => ({
-        fileId: `dir__${name}`,
+        fileId: `dir__${subPath ? `${subPath}/${name}` : name}`,
         fileName: subPath ? `${subPath}/${name}` : name,
         name,
         isDirectory: true,

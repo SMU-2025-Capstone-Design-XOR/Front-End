@@ -193,6 +193,7 @@ export const getFolderFileList = async (syncFolderId) => {
     });
   // 폴더 경로를 배열로 변환하고, 'type' 필드 추가
   const folders = Array.from(folderSet).map(folderPath => ({
+    fileId: `dir__${folderPath}`,
     relativePath: folderPath,
     originalName: folderPath,
     type: 'folder',
