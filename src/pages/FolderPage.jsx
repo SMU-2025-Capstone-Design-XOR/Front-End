@@ -9,6 +9,9 @@ import folderIcon from '../assets/Home/folder.svg';
 import personIcon from '../assets/Home/person-24.svg';
 import { UserContextMenu } from '../components/UserContextMenu';
 import FolderContextMenu from '../components/FolderContextMenu';
+import SyncManager from '../SyncManager';
+import { stringify } from 'flatted';
+
 
 import {
   getFolderFileList,
@@ -49,7 +52,9 @@ export default function FolderPage() {
 
   const loadFiles = async (subPath = '') => {
     try {
+      console.log(`🔷 loadFiles - 현재 경로: '${subPath}' (ID: ${id})`);
       const files = await getFolderFileList(id);
+      // console.log('📂 loadFiles - 서버에서 받아온 파일 목록:', JSON.stringify(files, null, 2));
       const filteredFiles = files.filter(f => 
         typeof f === 'object' &&
         (f.id != null || f.originalName) &&
@@ -264,29 +269,47 @@ export default function FolderPage() {
   };
 
 // ── 폴더 컨텍스트 메뉴 상태 관리 ──
-const [ctxMenu, setCtxMenu] = useState({ visible: false, x: 0, y: 0, folderId: null });
+const [ctxMenu, setCtxMenu] = useState({
+  visible: false,
+  x: 0,
+  y: 0,
+  folderId: null,
+  relativePath: ''
+});
 
-const showCtx = (id) => (e) => {
+const showCtx = (id, relPath) => (e) => {
   e.preventDefault();
-  setCtxMenu({ visible: true, x: e.clientX, y: e.clientY, folderId: id });
+  setCtxMenu({ visible: true, x: e.clientX, y: e.clientY, folderId: id, relativePath: relPath });
 };
 
+// ── 서브폴더 정보 가여오기 ──
 const handlefoldInfo = () => {
   alert(`Folder ID: ${ctxMenu.folderId}`);
   setCtxMenu((m) => ({ ...m, visible: false }));
 };
 
+// ── 서브폴더 삭제하기(IPC 통신까지) --
 const handlefoldDelete = async () => {
-  if (!window.confirm('삭제하시겠습니까?')) return setCtxMenu((m) => ({ ...m, visible: false }));
-  try {
-    await deleteSyncFolder(id, ctxMenu.folderId);
-    alert('폴더 삭제 완료');
-    loadFiles(currentPath); // 폴더 목록 갱신
-  } catch (err) {
-    console.error('삭제 실패:', err);
-    alert('폴더 삭제 중 오류가 발생했습니다.');
+  try{
+    if (!window.confirm('삭제하시겠습니까?')) return setCtxMenu((m) => ({ ...m, visible: false }));
+
+    // 문제 진단용 로그
+    console.log('handlefoldDelete - relPath:', ctxMenu.relativePath);
+      // IPC로 전송할 객체
+    const payload = {
+      folderId: Number(id),
+      // relativePath: relPath ? String(relPath) : ''
+      relativePath: ctxMenu.relativePath  // 순수 문자열
+    };
+    
+    // 직렬화 가능한지 확인
+    console.log('handlefoldDelete - payload:', JSON.stringify(payload));
+  
+    ipcRenderer.send('delete-subfolder', payload);
+    setCtxMenu((m) => ({ ...m, visible: false }));
+  } catch (error) {
+    console.error('handlefoldDelete - 에러', error)
   }
-  setCtxMenu((m) => ({ ...m, visible: false }));
 };
 
 
@@ -339,9 +362,7 @@ const handlefoldDelete = async () => {
           <div
             key={`${item.fileId}__${item.fileName}`}  /* fileId 와 fileName 을 합쳐서 유니크 key */
             onDoubleClick={() => handleDoubleClick(item)}
-            // onContextMenu={e => showFileMenu(e, item)}
-            onContextMenu={item.isDirectory ? showCtx(item.fileId) : (e) => showFileMenu(e, item)}
-            // style={{ display:'flex', alignItems:'center', padding:'8px 0' }}
+            onContextMenu={item.isDirectory ? showCtx(item.fileId, item.fileName) : (e) => showFileMenu(e, item)}
             style={{ display:'flex', alignItems:'center', padding:'8px 0', cursor: item.isDirectory ? 'pointer' : 'default' }}
           >
             <span style={{ marginRight: 8 }}>{item.isDirectory ? '📁' : '📄'}</span>

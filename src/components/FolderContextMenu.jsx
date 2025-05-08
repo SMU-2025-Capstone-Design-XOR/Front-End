@@ -25,7 +25,7 @@ const FolderContextMenu = ({ x, y, visible, onInfo, onDelete }) => {
       {/* 두 번째 메뉴 */}
       <div className="component" onClick={onDelete}>
         <img className="icon" src={deleteSvg} alt="Sync delete" />
-        <span className="label">싱크 폴더 삭제</span>
+        <span className="label">폴더 삭제하기</span>
       </div>
     </div>
   );

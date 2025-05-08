@@ -174,22 +174,46 @@ export const getFolderFileList = async (syncFolderId) => {
     `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files`,
     { method: 'GET' }
   );
+  if (!Array.isArray(list)) return [];
+  // 폴더 경로를 저장할 Set (중복 제거용)
+  const folderSet = new Set();
+  const result = list
+    .map(file => {
+      const relativePath = file.relativePath || file.originalName || '';
+      const segments = relativePath.split('/');
+      // 폴더 경로 추출 (중간 경로를 모두 폴더로 인식)
+      for (let i = 0; i < segments.length - 1; i++) {
+        const folderPath = segments.slice(0, i + 1).join('/') + '/';
+        folderSet.add(folderPath);
+      }
+      return {
+        ...file,
+        type: 'file',  // 파일은 'file'로 명시
+      };
+    });
+  // 폴더 경로를 배열로 변환하고, 'type' 필드 추가
+  const folders = Array.from(folderSet).map(folderPath => ({
+    relativePath: folderPath,
+    originalName: folderPath,
+    type: 'folder',
+  }));
+  // 폴더와 파일 목록을 합쳐서 반환
+  return [...folders, ...result];
+  // // ── 필터: 빈 string 이거나 "/" 로만 끝나는 항목은 폴더 마커이므로 제거 ──
+  // return Array.isArray(list)
+  //   ? list.filter(f => {
+  //       const p = f.relativePath || f.originalName || '';
+  //       return p !== '' && !p.endsWith('/');
+  //     })
+  //   : [];
 
-  // ── 필터: 빈 string 이거나 "/" 로만 끝나는 항목은 폴더 마커이므로 제거 ──
-  return Array.isArray(list)
-    ? list.filter(f => {
-        const p = f.relativePath || f.originalName || '';
-        return p !== '' && !p.endsWith('/');
-      })
-    : [];
 };
 
 
 /**
  * 개별 파일 메타데이터 조회
- *
  * @param {string|number} syncFolderId  싱크 폴더 ID
- * @param {string}         relativePath 파일의 상대경로 (subdir/to/file.txt)
+ * @param {string} relativePath 파일의 상대경로 (subdir/to/file.txt)
  */
 export const getFolderFileMeta = async (syncFolderId, relativePath) => {
   const userId = getUserIdFromToken();
