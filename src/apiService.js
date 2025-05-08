@@ -199,14 +199,6 @@ export const getFolderFileList = async (syncFolderId) => {
   }));
   // 폴더와 파일 목록을 합쳐서 반환
   return [...folders, ...result];
-  // // ── 필터: 빈 string 이거나 "/" 로만 끝나는 항목은 폴더 마커이므로 제거 ──
-  // return Array.isArray(list)
-  //   ? list.filter(f => {
-  //       const p = f.relativePath || f.originalName || '';
-  //       return p !== '' && !p.endsWith('/');
-  //     })
-  //   : [];
-
 };
 
 
