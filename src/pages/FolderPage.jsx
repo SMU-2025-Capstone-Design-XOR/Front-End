@@ -60,17 +60,32 @@ export default function FolderPage() {
         !f.originalName.startsWith('.')
       );
 
-      const mapped = filteredFiles.map(f => {
+      // 같은 relativePath를 가진 파일이 있을 경우, 최신 파일만 남기기
+      const fileMap = new Map();
+      filteredFiles.forEach(f => {
+        const relPath = f.relativePath?.trim() || f.originalName;
+        const existing = fileMap.get(relPath);
+        if (!existing || new Date(f.lastModified) > new Date(existing.lastModified)) {
+          fileMap.set(relPath, f);
+        }
+      });
+
+      // Map을 다시 배열로 변환
+      const uniqueFiles = Array.from(fileMap.values());
+
+      const mapped = uniqueFiles.map(f => {
         const rel = f.relativePath?.trim() || f.originalName;
         return {
-          // fileId: f.id ?? f.fileId,
-          fileId: f.fileId ?? f.id,
+          fileId: f.id ?? f.fileId,
           fileName: rel,
           name: f.originalName,
-          isDirectory: f.type === 'folder' || rel.endsWith('/')
+          isDirectory: f.type === 'folder' || rel.endsWith('/'),
+          lastModified: f.lastModified,
         };
       });
-      console.log('🔷 [mapped → UI에 사용할 형태]', mapped);
+
+      console.log('🔷 [UI에 사용할 형태 - 중복 제거 완료]', mapped);
+
 
       // 현재 경로(subPath) 기준으로 서브폴더 추출
       const dirSet = new Set();
@@ -257,43 +272,44 @@ export default function FolderPage() {
     try {
       let targetId;
       let displayName;
-
-      // — 숫자 ID 케이스 —
-      if (typeof fileIdOrPath === 'number' || !isNaN(Number(fileIdOrPath))) {
-        targetId = Number(fileIdOrPath);
-        const item = fileList.find(f => Number(f.fileId) === targetId);
-        if (!item) throw new Error('삭제할 파일을 찾을 수 없습니다.');
-        displayName = item.fileName;
-
-      // — 파일명(문자열) 케이스 —
-      } else {
+  
+      // 문자열 경로인 경우
+      if (typeof fileIdOrPath === 'string') {
         displayName = fileIdOrPath;
-        const meta = await getFolderFileMeta(id, fileIdOrPath);
-        // 백엔드가 id 대신 fileId로 내려줄 수도 있어서 둘 다 확인
-        targetId = meta.id ?? meta.fileId;
-        if (!targetId) throw new Error('메타데이터에서 파일 ID를 찾을 수 없습니다.');
+        const files = await getFolderFileList(id);
+        const matchingFiles = files.filter(f => f.relativePath === displayName);
+  
+        if (matchingFiles.length > 0) {
+          // 최신 파일의 ID를 삭제
+          const latestFile = matchingFiles.reduce((latest, current) => {
+            return new Date(current.lastModified) > new Date(latest.lastModified) ? current : latest;
+          });
+  
+          targetId = latestFile.id ?? latestFile.fileId;
+        }
       }
-
-      // 사용자 확인
+  
+      if (!targetId) throw new Error('삭제할 파일을 찾을 수 없습니다.');
+  
       if (!window.confirm(`’${displayName}‘ 을(를) 정말 삭제하시겠습니까?`)) return;
-
-      // 실제 삭제 호출
+  
       await deleteFolderFile(id, targetId);
       alert('삭제되었습니다.');
-
-      // → 로컬에서도 파일 삭제
+  
+      // 로컬 파일 삭제
       const localFull = path.join(folderPath, displayName);
       if (fs.existsSync(localFull)) {
         fs.unlinkSync(localFull);
-      }      
-
+      }
+  
       loadFiles();
-
+  
     } catch (err) {
       console.error(err);
       alert('삭제 실패: ' + err.message);
     }
   };
+  
 
 // ── 폴더 컨텍스트 메뉴 상태 관리 ──
 const [ctxMenu, setCtxMenu] = useState({
