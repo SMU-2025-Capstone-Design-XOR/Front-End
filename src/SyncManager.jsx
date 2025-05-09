@@ -25,6 +25,39 @@ export default function SyncManager() {
   const initialSyncDoneRef    = useRef({}); // Tracks if initial sync is completed per folder
   const navigate              = useNavigate();
 
+  // ── 전체 폴더 메타 스캔 ──
+  function buildClientFiles(root) {
+    const results = [];
+    const walk = (currentDir) => {
+      const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path.join(currentDir, entry.name);
+        const stat = fs.statSync(fullPath);
+  
+        if (entry.isFile()) {
+          const buffer = fs.readFileSync(fullPath);
+  
+          const relativePath = path.relative(root, fullPath).replace(/\\/g, '/'); // 윈도우 호환
+          const mimeType = mime.lookup(fullPath) || 'application/octet-stream';
+          const hash = crypto.createHash('sha256').update(buffer).digest('hex');
+  
+          results.push({
+            originalName: relativePath,     // 백엔드 기준 이름
+            relativePath: relativePath,     // 실제 업로드 경로
+            size: stat.size,
+            hash: hash,
+            mimeType: mimeType,
+            lastModified: new Date(stat.mtimeMs).toISOString(),
+          });
+        } else if (entry.isDirectory()) {
+          walk(fullPath); // 재귀 탐색
+        }
+      }
+    };
+  
+    walk(root);
+    return results;
+  }
 
   // 폴더 및 서브 폴더 관련 핸들러
 
@@ -124,74 +157,62 @@ export default function SyncManager() {
     })();
   }, []);
 
-  // ── 전체 폴더 메타 스캔 ──
-  function buildClientFiles(root) {
-    const results = [];
-    const walk = (currentDir) => {
-      const entries = fs.readdirSync(currentDir, { withFileTypes: true });
-      for (const entry of entries) {
-        const fullPath = path.join(currentDir, entry.name);
-        const stat = fs.statSync(fullPath);
-  
-        if (entry.isFile()) {
-          const buffer = fs.readFileSync(fullPath);
-  
-          const relativePath = path.relative(root, fullPath).replace(/\\/g, '/'); // 윈도우 호환
-          const mimeType = mime.lookup(fullPath) || 'application/octet-stream';
-          const hash = crypto.createHash('sha256').update(buffer).digest('hex');
-  
-          results.push({
-            originalName: relativePath,     // 백엔드 기준 이름
-            relativePath: relativePath,     // 실제 업로드 경로
-            size: stat.size,
-            hash: hash,
-            mimeType: mimeType,
-            lastModified: new Date(stat.mtimeMs).toISOString(),
-          });
-        } else if (entry.isDirectory()) {
-          walk(fullPath); // 재귀 탐색
-        }
-      }
-    };
-  
-    walk(root);
-    return results;
-  }
-
-
   // 로컬 파일 동기화 관련 핸들러
 
   // ── 로컬 파일 추가 핸들러 ──
   async function handleLocalAdd(fullPath, id, root) {
-    try {
+  try {
+    console.log(`📂 [handleLocalAdd] 파일 추가됨: ${fullPath}`);
 
-      // 1) 상대경로 계산 및 보정
-      let rel = path.relative(root, fullPath).replace(/\\/g,'/');
-      if (!rel) rel = path.basename(fullPath);
-      // 2) 메타 생성 (백엔드가 기대하는 최소 필드만)
-      const stat = fs.statSync(fullPath);
-      const buf  = fs.readFileSync(fullPath);
-      const meta = [{
-        originalName: path.basename(fullPath),
-        relativePath: rel,
-        size: stat.size,
-        hash: crypto.createHash('sha256').update(buf).digest('hex'),
-        mimeType: mime.lookup(fullPath) || 'application/octet-stream',
-        lastModified: new Date(stat.mtimeMs).toISOString()
-      }];
-      const { filesToUpload = [] } = await syncFolder(id, meta, []);
-      if (filesToUpload.includes(rel)) {
-        console.warn(`📁 [SyncManager] IPC 보내기 → sync-file-added (folderId=${id}, relativePath=${rel})`);
-        await uploadFile(id, fullPath, rel);
-        // notify UI
-        ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
-      }
-      // 맵 업데이트
-      prevClientMapRef.current[id]?.set(rel, meta[0]);
-    } catch (e) {
-      console.error(`handleLocalAdd[${id}]`, e);
+    // 폴더 내 전체 파일 목록 수집
+    const folderFiles = buildClientFiles(root);
+
+    // 상대 경로 계산
+    let rel = path.relative(root, fullPath).replace(/\\/g, '/');
+    if (!rel) rel = path.basename(fullPath);
+
+    const stat = fs.statSync(fullPath);
+    const buf = fs.readFileSync(fullPath);
+
+    // 새로 추가된 파일의 메타데이터
+    const newFileMeta = {
+      fileId: null, // 새로 추가된 파일이므로 fileId는 null로 설정
+      originalName: path.basename(fullPath),
+      relativePath: rel,
+      size: stat.size,
+      hash: crypto.createHash('sha256').update(buf).digest('hex'),
+      mimeType: mime.lookup(fullPath) || 'application/octet-stream',
+      lastModified: new Date(stat.mtimeMs).toISOString()
+    };
+
+    // `clientFiles`에 새로운 파일 추가
+    const clientFiles = [...folderFiles, newFileMeta];
+
+    console.log(`📦 [handleLocalAdd] 동기화 요청 데이터:`, clientFiles);
+
+    // 서버와 동기화
+    const { filesToUpload = [], filesToDownload = [] } = await syncFolder(id, clientFiles, []);
+
+    console.log(`🟢 [handleLocalAdd] 서버 응답 - 업로드 대상: ${filesToUpload}, 다운로드 대상: ${filesToDownload}`);
+
+    // 파일 업로드 처리
+    if (filesToUpload.includes(rel)) {
+      console.warn(`📁 [handleLocalAdd] 서버에 업로드할 파일: ${rel}`);
+      await uploadFile(id, fullPath, rel);
     }
+
+    // 다운로드 대상 처리
+    for (const downloadPath of filesToDownload) {
+      await downloadFile(id, downloadPath);
+    }
+
+    // 맵 업데이트
+    prevClientMapRef.current[id] = new Map(clientFiles.map(file => [file.relativePath, file]));
+
+  } catch (e) {
+    console.error(`❌ [handleLocalAdd] 에러 발생 (ID: ${id}, Path: ${fullPath})`, e);
   }
+}
 
 // ── 로컬 파일 변경 핸들러 ──
 const handleLocalChange = async (filePath, id, root) => {
