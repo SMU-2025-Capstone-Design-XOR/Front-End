@@ -159,149 +159,149 @@ export default function SyncManager() {
 
   // 로컬 파일 동기화 관련 핸들러
 
-  // ── 로컬 파일 추가 핸들러 ──
   async function handleLocalAdd(fullPath, id, root) {
-  try {
-    console.log(`📂 [handleLocalAdd] 파일 추가됨: ${fullPath}`);
+    try {
+      const rel = path.relative(root, fullPath).replace(/\\/g, '/').trim() || path.basename(fullPath);
+      if (rel.startsWith('.')) {
+        console.log(`🛑 무시된 파일: ${rel}`);
+        return;
+      }
+      const localFiles = buildClientFiles(root);
+      const localPaths = new Set(localFiles.map(f => f.relativePath));
+      console.log(`📂 [handleLocalAdd] 파일 추가됨: ${rel}`);
+  
+      const stat = fs.statSync(fullPath);
+      const buf = fs.readFileSync(fullPath);
+      const newFileMeta = {
+        originalName: path.basename(fullPath),
+        relativePath: rel,
+        size: stat.size,
+        hash: crypto.createHash('sha256').update(buf).digest('hex'),
+        mimeType: mime.lookup(fullPath) || 'application/octet-stream',
+        lastModified: new Date(stat.mtimeMs).toISOString()
+      };
+  
+      const serverFiles = await getFolderFileList(id);
+      const serverMap = new Map(serverFiles.map(f => [f.relativePath, f]));
+      const serverMeta = serverMap.get(rel);
+  
+      if (serverMeta) {
+        if (newFileMeta.hash !== serverMeta.hash) {
+          const clientTime = new Date(newFileMeta.lastModified);
+          const serverTime = new Date(serverMeta.lastModified);
+          if (clientTime > serverTime) {
+            console.warn(`📁 변경이 최신 → 업로드: ${rel}`);
+            await uploadFile(id, fullPath, rel);
+          } else {
+            console.warn(`📁 서버가 최신 → 다운로드: ${rel}`);
+            const blob = await downloadFolderFile(id, rel);
+            const arrayBuf = await blob.arrayBuffer();
+            const dest = path.join(root, rel);
+            fs.mkdirSync(path.dirname(dest), { recursive: true });
+            fs.writeFileSync(dest, Buffer.from(arrayBuf));
+          }
+          ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: rel });
+        } else {
+          console.log(`📁 변경없음 (해시 동일): ${rel}`);
+        }
+      } else {
+        console.warn(`📁 서버에 없음 → 신규 업로드: ${rel}`);
+        await uploadFile(id, fullPath, rel);
+        ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
+      }
+      const clientMap = prevClientMapRef.current[id] || new Map();
+      clientMap.set(rel, newFileMeta);
 
-    // 폴더 내 전체 파일 목록 수집
-    const folderFiles = buildClientFiles(root);
+      for (const [serverRel, serverMetaItem] of serverMap.entries()) {
+        if (!localPaths.has(serverRel)) {
+          console.warn(`☁️ 서버에만 있음 → 로컬로 다운로드: ${serverRel}`);
+          const blob = await downloadFolderFile(id, serverRel);
+          const arrayBuf = await blob.arrayBuffer();
+          const dest = path.join(root, serverRel);
+          fs.mkdirSync(path.dirname(dest), { recursive: true });
+          fs.writeFileSync(dest, Buffer.from(arrayBuf));
+          ipcRenderer.send('sync-file-added', { folderId: id, relativePath: serverRel });
+  
+          const stat = fs.statSync(dest);
+          const buf = fs.readFileSync(dest);
+          const downloadedMeta = {
+            originalName: path.basename(dest),
+            relativePath: serverRel,
+            size: stat.size,
+            hash: crypto.createHash('sha256').update(buf).digest('hex'),
+            mimeType: mime.lookup(dest) || 'application/octet-stream',
+            lastModified: new Date(stat.mtimeMs).toISOString()
+          };
+          clientMap.set(serverRel, downloadedMeta);
+        }
+      }
 
-    // 상대 경로 계산
-    let rel = path.relative(root, fullPath).replace(/\\/g, '/');
-    if (!rel) rel = path.basename(fullPath);
-
-    const stat = fs.statSync(fullPath);
-    const buf = fs.readFileSync(fullPath);
-
-    // 새로 추가된 파일의 메타데이터
-    const newFileMeta = {
-      originalName: path.basename(fullPath),
-      relativePath: rel,
-      size: stat.size,
-      hash: crypto.createHash('sha256').update(buf).digest('hex'),
-      mimeType: mime.lookup(fullPath) || 'application/octet-stream',
-      lastModified: new Date(stat.mtimeMs).toISOString()
-    };
-
-    // `clientFiles`에 새로운 파일 추가
-    const clientFiles = [...folderFiles, newFileMeta];
-
-    console.log(`📦 [handleLocalAdd] 동기화 요청 데이터:`, clientFiles);
-
-    // 서버와 동기화
-    const { filesToUpload = [], filesToDownload = [] } = await syncFolder(id, clientFiles, []);
-
-    console.log(`🟢 [handleLocalAdd] 서버 응답 - 업로드 대상: ${filesToUpload}, 다운로드 대상: ${filesToDownload}`);
-
-    // 파일 업로드 처리
-    if (filesToUpload.includes(rel)) {
-      console.warn(`📁 [handleLocalAdd] 서버에 업로드할 파일: ${rel}`);
-      await uploadFile(id, fullPath, rel);
+      // clientMap.set(rel, newFileMeta);
+      prevClientMapRef.current[id] = clientMap;
+  
+    } catch (e) {
+      // console.error(`❌ handleLocalAdd[${id}]`, e);
+      console.warn(`conflict handleLocalAdd[${id}]`, e);
     }
-
-    // 다운로드 대상 처리
-    for (const downloadPath of filesToDownload) {
-      await downloadFile(id, downloadPath);
-    }
-
-    // 맵 업데이트
-    prevClientMapRef.current[id] = new Map(clientFiles.map(file => [file.relativePath, file]));
-
-  } catch (e) {
-    console.error(`❌ [handleLocalAdd] 에러 발생 (ID: ${id}, Path: ${fullPath})`, e);
   }
-}
 
 // ── 로컬 파일 변경 핸들러 ──
 const handleLocalChange = async (filePath, id, root) => {
   try {
-    const relPath = path.relative(root, filePath).replace(/\\/g, '/').trim() || path.basename(filePath);
-    console.warn(`📁 [SyncManager] handleLocalChange 시작 → folderId=${id}, relPath=${relPath}`);
+    const rel = path.relative(root, filePath).replace(/\\/g, '/').trim() || path.basename(filePath);
+    console.log(`📁 [handleLocalChange] 시작 → ${rel}`);
 
-    // 1. 변경된 파일의 메타데이터 계산
+    // 1. 변경된 메타 계산
     const stat = fs.statSync(filePath);
-    const buf = fs.readFileSync(filePath);
-    const changedFileMeta = {
+    const buf  = fs.readFileSync(filePath);
+    const changedMeta = {
       originalName: path.basename(filePath),
-      relativePath: relPath,
+      relativePath: rel,
       size: stat.size,
       hash: crypto.createHash('sha256').update(buf).digest('hex'),
       mimeType: mime.lookup(filePath) || 'application/octet-stream',
       lastModified: new Date(stat.mtimeMs).toISOString(),
     };
-
-    console.log('📁 [SyncManager] 변경된 파일 메타데이터:', changedFileMeta);
-
-    // 2. 서버의 파일 메타데이터 가져오기
+    console.log('📁 [SyncManager] 변경된 파일 메타데이터:', changedMeta);
+    // 2. 서버 메타 조회
     const serverFiles = await getFolderFileList(id);
-    const serverFileMap = new Map(serverFiles.map(f => [f.relativePath, f]));
+    const serverMap   = new Map(serverFiles.map(f => [f.relativePath, f]));
+    const serverMeta  = serverMap.get(rel);
 
-    console.log('📁 [SyncManager] 서버 파일 목록:', serverFiles);
-
-    // 2.5. 전체 로컬 파일 메타데이터 생성
-    const localFiles = buildClientFiles(root);
-    console.log('📁 [SyncManager] 전체 로컬 파일 메타데이터:', localFiles);
-
-    // 3. 기존 클라이언트 맵에서 중복 체크
-    const clientMap = prevClientMapRef.current[id] || new Map();
-    const existingMeta = clientMap.get(relPath);
-
-    // 3-1. 중복 파일 병합/정리
-    if (existingMeta) {
-      if (existingMeta.hash === changedFileMeta.hash) {
-        console.log(`📁 [SyncManager] 동일한 파일이 이미 존재: ${relPath}`);
-        return; // 동일한 파일이 이미 존재하면 처리하지 않음
+    if (serverMeta) {
+      // 3. 해시가 다르면 업/다운 판단
+      if (changedMeta.hash !== serverMeta.hash) {
+        const clientTime = new Date(changedMeta.lastModified);
+        const serverTime = new Date(serverMeta.lastModified);
+        if (clientTime > serverTime) {
+          console.warn(`📁 변경이 최신 → 업로드: ${rel}`);
+          await uploadFile(id, filePath, rel);
+        } else {
+          console.warn(`📁 서버가 최신 → 다운로드: ${rel}`);
+          const blob = await downloadFolderFile(id, rel);
+          const arrayBuf = await blob.arrayBuffer();
+          const dest = path.join(root, rel);
+          fs.mkdirSync(path.dirname(dest), { recursive: true });
+          fs.writeFileSync(dest, Buffer.from(arrayBuf));
+        }
+        ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: rel });
       } else {
-        console.warn(`📁 [SyncManager] 동일한 경로의 파일이 이미 존재하므로 덮어쓰기: ${relPath}`);
-        clientMap.set(relPath, changedFileMeta);
-      }
-    }
-
-    // 4. 서버와 해시 비교
-    const serverFileMeta = serverFileMap.get(relPath);
-
-    if (serverFileMeta) {
-      console.log('[해시 비교]', {
-        path: changedFileMeta.relativePath,
-        prevHash: serverFileMeta.hash,
-        newHash: changedFileMeta.hash,
-      });
-
-      if (changedFileMeta.hash !== serverFileMeta.hash) {
-        console.warn(`📁 [SyncManager] 서버에 덮어쓰기: ${relPath}`);
-        await uploadFile(id, filePath, relPath);
-        console.warn(`📁 [SyncManager] 서버에 파일 덮어쓰기 완료: ${relPath}`);
-      } else {
-        console.log(`📁 [SyncManager] 파일이 변경되지 않음: ${relPath}`);
+        console.log(`📁 변경없음 (해시 동일): ${rel}`);
       }
     } else {
-      console.warn(`📁 [SyncManager] 서버에 없는 파일이므로 신규 업로드: ${relPath}`);
-      await uploadFile(id, filePath, relPath);
+      // 4. 서버에 없는 새 파일 → 업로드
+      console.warn(`📁 서버에 없음 → 신규 업로드: ${rel}`);
+      await uploadFile(id, filePath, rel);
+      ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: rel });
     }
 
-    // 5. 중복된 `relativePath`를 가진 파일이 있을 경우 병합
-    for (const [key, meta] of clientMap) {
-      if (key !== relPath && meta.relativePath === relPath) {
-        console.warn(`📁 [SyncManager] 중복된 파일 병합 처리: ${key} → ${relPath}`);
-
-        // 해시값이 동일하면 하나로 병합
-        if (meta.hash === changedFileMeta.hash) {
-          console.log(`📁 [SyncManager] 동일한 해시 파일 병합: ${key}`);
-          clientMap.delete(key);
-        }
-      }
-    }
-
-    // 6. 최종적으로 맵에 저장
-    clientMap.set(relPath, changedFileMeta);
+    // 5. 클라이언트 맵 갱신
+    const clientMap = prevClientMapRef.current[id] || new Map();
+    clientMap.set(rel, changedMeta);
     prevClientMapRef.current[id] = clientMap;
 
-    // 7. UI 갱신
-    ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: relPath });
-
   } catch (e) {
-    console.error(`handleLocalChange[${id}]`, e);
+    console.error(`❌ handleLocalChange[${id}]`, e);
   }
 };
 

@@ -52,7 +52,6 @@ export default function FolderPage() {
 
   const loadFiles = async (subPath = '') => {
     try {
-      console.log(`🔷 loadFiles - 현재 경로: '${subPath}' (ID: ${id})`);
       const files = await getFolderFileList(id);
       const filteredFiles = files.filter(f => 
         typeof f === 'object' &&
