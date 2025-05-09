@@ -176,7 +176,6 @@ export default function SyncManager() {
 
     // 새로 추가된 파일의 메타데이터
     const newFileMeta = {
-      fileId: null, // 새로 추가된 파일이므로 fileId는 null로 설정
       originalName: path.basename(fullPath),
       relativePath: rel,
       size: stat.size,
