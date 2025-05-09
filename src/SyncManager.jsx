@@ -211,16 +211,34 @@ const handleLocalChange = async (filePath, id, root) => {
       lastModified: new Date(stat.mtimeMs).toISOString(),
     };
 
-    // 2. 전체 로컬 파일 메타데이터 생성
-    const localFiles = buildClientFiles(root);
+    console.log('📁 [SyncManager] 변경된 파일 메타데이터:', changedFileMeta);
 
-    // 3. 서버의 파일 메타데이터 가져오기
+    // 2. 서버의 파일 메타데이터 가져오기
     const serverFiles = await getFolderFileList(id);
     const serverFileMap = new Map(serverFiles.map(f => [f.relativePath, f]));
 
     console.log('📁 [SyncManager] 서버 파일 목록:', serverFiles);
 
-    // 4. 변경된 파일이 서버에 존재하는지 확인
+    // 2.5. 전체 로컬 파일 메타데이터 생성
+    const localFiles = buildClientFiles(root);
+    console.log('📁 [SyncManager] 전체 로컬 파일 메타데이터:', localFiles);
+
+    // 3. 기존 클라이언트 맵에서 중복 체크
+    const clientMap = prevClientMapRef.current[id] || new Map();
+    const existingMeta = clientMap.get(relPath);
+
+    // 3-1. 중복 파일 병합/정리
+    if (existingMeta) {
+      if (existingMeta.hash === changedFileMeta.hash) {
+        console.log(`📁 [SyncManager] 동일한 파일이 이미 존재: ${relPath}`);
+        return; // 동일한 파일이 이미 존재하면 처리하지 않음
+      } else {
+        console.warn(`📁 [SyncManager] 동일한 경로의 파일이 이미 존재하므로 덮어쓰기: ${relPath}`);
+        clientMap.set(relPath, changedFileMeta);
+      }
+    }
+
+    // 4. 서버와 해시 비교
     const serverFileMeta = serverFileMap.get(relPath);
 
     if (serverFileMeta) {
@@ -230,83 +248,42 @@ const handleLocalChange = async (filePath, id, root) => {
         newHash: changedFileMeta.hash,
       });
 
-      // 4-1. 파일이 존재하고, 해시가 다른 경우 → 서버에 덮어쓰기
       if (changedFileMeta.hash !== serverFileMeta.hash) {
-        console.warn(`📁 [SyncManager] 파일 업데이트 필요: ${relPath}`);
+        console.warn(`📁 [SyncManager] 서버에 덮어쓰기: ${relPath}`);
         await uploadFile(id, filePath, relPath);
-
-        // UI 갱신
-        ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: relPath });
+        console.warn(`📁 [SyncManager] 서버에 파일 덮어쓰기 완료: ${relPath}`);
+      } else {
+        console.log(`📁 [SyncManager] 파일이 변경되지 않음: ${relPath}`);
       }
     } else {
-      // 4-2. 서버에 없는 경우 → 신규 업로드
-      console.warn(`📁 [SyncManager] 신규 파일 발견 → ${relPath}`);
+      console.warn(`📁 [SyncManager] 서버에 없는 파일이므로 신규 업로드: ${relPath}`);
       await uploadFile(id, filePath, relPath);
-
-      // UI 갱신
-      ipcRenderer.send('sync-file-added', { folderId: id, relativePath: relPath });
     }
 
-    // 5. 이전 메타데이터 갱신
-    prevClientMapRef.current[id]?.set(relPath, changedFileMeta);
+    // 5. 중복된 `relativePath`를 가진 파일이 있을 경우 병합
+    for (const [key, meta] of clientMap) {
+      if (key !== relPath && meta.relativePath === relPath) {
+        console.warn(`📁 [SyncManager] 중복된 파일 병합 처리: ${key} → ${relPath}`);
+
+        // 해시값이 동일하면 하나로 병합
+        if (meta.hash === changedFileMeta.hash) {
+          console.log(`📁 [SyncManager] 동일한 해시 파일 병합: ${key}`);
+          clientMap.delete(key);
+        }
+      }
+    }
+
+    // 6. 최종적으로 맵에 저장
+    clientMap.set(relPath, changedFileMeta);
+    prevClientMapRef.current[id] = clientMap;
+
+    // 7. UI 갱신
+    ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: relPath });
 
   } catch (e) {
     console.error(`handleLocalChange[${id}]`, e);
   }
 };
-
-
-//   let previousClientFiles = [];
-//  // 로컬 변경 핸들러
-//   const handleLocalChange = async (filePath, id, root) => {
-//     const relPath = path.relative(root, filePath).replace(/\\/g, '/').trim() || path.basename(filePath);
-//     console.warn(`📁 [SyncManager] handleLocalChange 시작 → folderId=${id}, rel=${relPath}`);
-    
-
-//     // 1. 전체 메타데이터 재생성
-//     const clientFiles = await buildClientFiles(root);
-  
-//     // 2. 변경된 파일 메타데이터 찾기
-//     const changedFile = clientFiles.find(f => f.relativePath === relPath);
-//     const prevFile = previousClientFiles.find(f => f.relativePath === relPath);
-  
-//     if (changedFile && prevFile) {
-//       console.log('[해시 비교]', {
-//         path: changedFile.relativePath,
-//         prevHash: prevFile.hash,
-//         newHash: changedFile.hash,
-//       });
-//     } else {
-//       console.log('[변경 감지] 변경된 파일이 신규 또는 삭제됨:', changedFile?.relativePath || relPath);
-//     }
-  
-//     // 3. 서버와 동기화 비교
-//     const { filesToUpload = [], filesToDownload = [] } = await syncFolder(id, clientFiles, []);
-//     console.log(`📁 [SyncManager] syncFolder 응답 →`, { filesToUpload, filesToDownload });
-  
-//     const fullPath = path.join(root, relPath);
-  
-//     // 4. 업로드가 필요한 경우
-//     if (filesToUpload.includes(relPath) && changedFile && fs.existsSync(fullPath)) {
-//       console.warn(`📁 [SyncManager] 업로드 대상 → ${relPath}`);
-//       await uploadFile(id, fullPath, relPath);
-//     }
-  
-//     // 5. 다운로드가 필요한 경우
-//     if (filesToDownload.includes(relPath)) {
-//       console.warn(`📁 [SyncManager] 다운로드 대상 → ${relPath}`);
-//       const blob = await downloadFolderFile(id, relPath);
-//       const arr = await blob.arrayBuffer();
-//       fs.writeFileSync(fullPath, Buffer.from(arr));
-//     }
-  
-//     // 6. UI 갱신
-//     ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: relPath });
-  
-//     // 7. 이전 상태 갱신
-//     previousClientFiles = clientFiles;
-//   };
-
 
   // ── 로컬 파일 삭제 핸들러 ──
   async function handleLocalDelete(fullPath, id, root) {
@@ -471,8 +448,9 @@ const handleLocalChange = async (filePath, id, root) => {
       watcher
       .on('add', p => handleLocalAdd(p, id, root))
       .on('change', p => {
-        setTimeout(() => handleLocalChange(p, id, root), 250); // 200ms 지연
+        setTimeout(() => handleLocalChange(p, id, root), 190); // 200ms 지연
       })      
+      // .on('change', p => handleLocalChange(p, id, root))
       .on('unlink', p => handleLocalDelete(p, id, root))
       .on('addDir', p => {
         doSync();
