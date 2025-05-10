@@ -26,136 +26,50 @@ export default function SyncManager() {
   const navigate              = useNavigate();
 
   // ── 전체 폴더 메타 스캔 ──
-  function buildClientFiles(root) {
-    const results = [];
-    const walk = (currentDir) => {
-      const entries = fs.readdirSync(currentDir, { withFileTypes: true });
-      for (const entry of entries) {
-        const fullPath = path.join(currentDir, entry.name);
-        const stat = fs.statSync(fullPath);
-  
-        if (entry.isFile()) {
-          const buffer = fs.readFileSync(fullPath);
-  
-          const relativePath = path.relative(root, fullPath).replace(/\\/g, '/'); // 윈도우 호환
-          const mimeType = mime.lookup(fullPath) || 'application/octet-stream';
-          const hash = crypto.createHash('sha256').update(buffer).digest('hex');
-  
-          results.push({
-            originalName: relativePath,     // 백엔드 기준 이름
-            relativePath: relativePath,     // 실제 업로드 경로
-            size: stat.size,
-            hash: hash,
-            mimeType: mimeType,
-            lastModified: new Date(stat.mtimeMs).toISOString(),
-          });
-        } else if (entry.isDirectory()) {
-          walk(fullPath); // 재귀 탐색
-        }
+// ── 전체 파일 메타 스캔 ──
+function buildClientFiles(root) {
+  const results = [];
+  function walk(currentDir) {
+    fs.readdirSync(currentDir, { withFileTypes: true }).forEach(entry => {
+      const fullPath = path.join(currentDir, entry.name);
+      const stat = fs.statSync(fullPath);
+      if (entry.isFile()) {
+        const buffer = fs.readFileSync(fullPath);
+        const relativePath = path.relative(root, fullPath).replace(/\\/g, '/');
+        results.push({
+          originalName: relativePath,
+          // relativePath: relativePath,
+          relativePath,
+          size: stat.size,
+          hash: crypto.createHash('sha256').update(buffer).digest('hex'),
+          mimeType: mime.lookup(fullPath) || 'application/octet-stream',
+          lastModified: new Date(stat.mtimeMs).toISOString(),
+        });
+      } else if (entry.isDirectory()) {
+        walk(fullPath);
       }
-    };
-  
-    walk(root);
-    return results;
+    });
   }
+  walk(root);
+  return results;
+}
 
-  // 폴더 및 서브 폴더 관련 핸들러
 
-  // ── Helper: 빈 디렉터리까지 깔끔히 삭제 ──
+  // 파일 및 서브 폴더 관련 핸들러
+
+  // ── Helper: 빈 디렉터리 삭제 ──
   function cleanupEmptyDirs(dir) {
-    for (const name of fs.readdirSync(dir)) {
+    fs.readdirSync(dir).forEach(name => {
       const full = path.join(dir, name);
       if (fs.statSync(full).isDirectory()) {
         cleanupEmptyDirs(full);
-        if (fs.readdirSync(full).length === 0) {
+        if (fs.readdirSync(full).length === 0){
           fs.rmdirSync(full);
           console.warn(`📁 [SyncManager] 폴더 삭제: ${full}`);
         }
       }
-    }
+    });
   }
-
-  // 루트경로에서 메인폴더 추가/삭제 동시 처리
-  useEffect(() => {
-    const onAdd = (_e, folder) => {
-      console.warn(`📁 [SyncManager] 폴더 추가 수신 → id=${folder.id}, path=${folder.folderPath}`);
-      setFolders(prev => [...prev, folder]);
-    };
-    const onRemove = (_e, { folderId, folderPath }) => {
-      console.warn(`📁 [SyncManager] 폴더 삭제 수신 → id=${folderId}`);
-      if (folderPath && fs.existsSync(folderPath)) {
-        fs.rmdirSync(folderPath, { recursive: true });
-        console.warn(`📁 [SyncManager] 로컬 폴더 삭제 → ${folderPath}`);
-      }
-      setFolders(prev => prev.filter(f => f.id !== folderId));
-    };
-    ipcRenderer.on('sync-folder-added',   onAdd);
-    ipcRenderer.on('sync-folder-removed', onRemove);
-    return () => {
-      ipcRenderer.removeListener('sync-folder-added',   onAdd);
-      ipcRenderer.removeListener('sync-folder-removed', onRemove);
-    };
-  }, []);
-
-
-  // 메인 폴더 내 서브폴더 삭제 처리
-  useEffect(() => {
-    // console.log('SyncManager - folders 업데이트:', JSON.stringify(folders, null, 2));
-    const onDeleteDir = (_e, payload) => {
-      try {
-        // 넘겨받은 payload 매개변수에 대응하는 값 넘겨받음
-        const { folderId, relativePath } = payload;
-        // 디버깅 처리
-        console.warn('onDeleteDir - payload:', payload);
-        console.warn('onDeleteDir - folders:', JSON.stringify(folders, null, 2));
-
-        if (!folderId || !relativePath) {
-          console.warn('onDeleteDir - 유효하지 않은 payload:', payload);
-          return;
-        }
-        // IPC 통신을 통해 넘어온 삭제요청 파일의 존재 여부를 검사 -> 파일의 절대경로를 통해 상대경로를 구함
-        const folder = folders.find(f => f.id === folderId);
-        if (!folder) {
-          console.warn(`onDeleteDir - folderId ${folderId}에 해당하는 폴더를 찾지 못함.`);
-          return;
-        }
-        const root = folder.folderPath;
-        const fullPath = path.join(root, relativePath);
-        // 서버에서 삭제 요청을 한 것이므로 로컬에서 삭제해야한다.
-        if (fs.existsSync(fullPath)) {
-          fs.rmSync(fullPath, { recursive: true, force: true });
-          console.warn(`📁 [SyncManager] 서브 폴더 삭제 완료 → ${fullPath}`);
-  
-          // UI 갱신
-          ipcRenderer.send('sync-file-deleted', { folderId, relativePath });
-        }
-  
-      } catch (error) {
-        console.error('onDeleteDir - 에러:', error);
-      }
-    };
-    ipcRenderer.on('delete-subfolder', onDeleteDir);
-    return () => {
-      ipcRenderer.removeListener('delete-subfolder', onDeleteDir);
-    };
-  }, [folders]);
-
-  // ── 최초 싱크폴더 목록 ──
-  useEffect(() => {
-    (async () => {
-      try {
-        const data = await getSyncFolder();
-        setFolders(data || []);
-      } catch (e) {
-        console.error(e);
-        if (e.message.startsWith('HTTP 403')) {
-          localStorage.removeItem('token');
-          alert('세션 만료, 재로그인 필요');
-          navigate('/');
-        }
-      }
-    })();
-  }, []);
 
   // 로컬 파일 동기화 관련 핸들러
 
@@ -241,7 +155,7 @@ export default function SyncManager() {
   
     } catch (e) {
       // console.error(`❌ handleLocalAdd[${id}]`, e);
-      console.warn(`conflict handleLocalAdd[${id}]`, e);
+      console.warn(`handleLocalAdd[${id}]`, e);
     }
   }
 
@@ -336,6 +250,127 @@ const handleLocalChange = async (filePath, id, root) => {
     }
   }
 
+  // ── 로컬에서 서브폴더 추가 동기화 ──
+  async function handleLocalSubAdd(fullPath, id, root) {
+    try {
+      const rel = path.relative(root, fullPath).replace(/\\/g, '/') + '/';
+      if (rel.startsWith('.')) return;
+      const clientMap = prevClientMapRef.current[id] || new Map();
+      if (!clientMap.has(rel)) {
+        console.log(`📁 [SyncManager] 서브폴더 추가 → ${rel}`);
+        clientMap.set(rel, { relativePath: rel, originalName: rel, type: 'folder' });
+        prevClientMapRef.current[id] = clientMap;
+        ipcRenderer.send('sync-folder-added', { folderId: id, relativePath: rel });
+      }
+    } catch (e) {
+      console.error(`❌ handleLocalSubAdd[${id}]`, e);
+    }
+  }
+
+    // ── 로컬에서 서브폴더 삭제 동기화 ──
+  async function handleLocalSubDelete(fullPath, id, root) {
+    try {
+      const rel = path.relative(root, fullPath).replace(/\\/g, '/') + '/';
+      const clientMap = prevClientMapRef.current[id] || new Map();
+      if (clientMap.has(rel)) {
+        console.log(`📁 [SyncManager] 서브폴더 삭제 → ${rel}`);
+        const serverFiles = await getFolderFileList(id);
+        for (const f of serverFiles) {
+          if (f.relativePath.startsWith(rel) && !f.relativePath.endsWith('/')) {
+            const fileId = f.id ?? f.fileId;
+            await deleteFolderFile(id, fileId);
+          }
+        }
+        clientMap.delete(rel);
+        prevClientMapRef.current[id] = clientMap;
+        ipcRenderer.send('sync-folder-removed', { folderId: id, relativePath: rel });
+      }
+    } catch (e) {
+      console.error(`❌ handleLocalSubDelete[${id}]`, e);
+    }
+  }
+
+  // 메인 폴더 내 서브폴더 삭제 처리
+  // useEffect(() => {
+  //   // console.log('SyncManager - folders 업데이트:', JSON.stringify(folders, null, 2));
+  //   const onDeleteDir = (_e, payload) => {
+  //     try {
+  //       // 넘겨받은 payload 매개변수에 대응하는 값 넘겨받음
+  //       const { folderId, relativePath } = payload;
+  //       // 디버깅 처리
+  //       console.warn('onDeleteDir - payload:', payload);
+  //       console.warn('onDeleteDir - folders:', JSON.stringify(folders, null, 2));
+
+  //       if (!folderId || !relativePath) {
+  //         console.warn('onDeleteDir - 유효하지 않은 payload:', payload);
+  //         return;
+  //       }
+  //       // IPC 통신을 통해 넘어온 삭제요청 파일의 존재 여부를 검사 -> 파일의 절대경로를 통해 상대경로를 구함
+  //       const folder = folders.find(f => f.id === folderId);
+  //       if (!folder) {
+  //         console.warn(`onDeleteDir - folderId ${folderId}에 해당하는 폴더를 찾지 못함.`);
+  //         return;
+  //       }
+  //       const root = folder.folderPath;
+  //       const fullPath = path.join(root, relativePath);
+  //       // 서버에서 삭제 요청을 한 것이므로 로컬에서 삭제해야한다.
+  //       if (fs.existsSync(fullPath)) {
+  //         fs.rmSync(fullPath, { recursive: true, force: true });
+  //         console.warn(`📁 [SyncManager] 서브 폴더 삭제 완료 → ${fullPath}`);
+  
+  //         // UI 갱신
+  //         ipcRenderer.send('sync-file-deleted', { folderId, relativePath });
+  //       }
+  
+  //     } catch (error) {
+  //       console.error('onDeleteDir - 에러:', error);
+  //     }
+  //   };
+  //   ipcRenderer.on('delete-subfolder', onDeleteDir);
+  //   return () => {
+  //     ipcRenderer.removeListener('delete-subfolder', onDeleteDir);
+  //   };
+  // }, [folders]);
+
+  // 루트경로에서 메인폴더 추가/삭제 동시 처리
+  useEffect(() => {
+    const onAdd = (_e, folder) => {
+      console.warn(`📁 [SyncManager] 폴더 추가 수신 → id=${folder.id}, path=${folder.folderPath}`);
+      setFolders(prev => [...prev, folder]);
+    };
+    const onRemove = (_e, { folderId, folderPath }) => {
+      console.warn(`📁 [SyncManager] 폴더 삭제 수신 → id=${folderId}`);
+      if (folderPath && fs.existsSync(folderPath)) {
+        fs.rmdirSync(folderPath, { recursive: true });
+        console.warn(`📁 [SyncManager] 로컬 폴더 삭제 → ${folderPath}`);
+      }
+      setFolders(prev => prev.filter(f => f.id !== folderId));
+    };
+    ipcRenderer.on('sync-folder-added',   onAdd);
+    ipcRenderer.on('sync-folder-removed', onRemove);
+    return () => {
+      ipcRenderer.removeListener('sync-folder-added',   onAdd);
+      ipcRenderer.removeListener('sync-folder-removed', onRemove);
+    };
+  }, []);
+
+  // ── 초기 싱크폴더 로드 ──
+  useEffect(() => {
+    (async () => {
+      try { 
+        setFolders(await getSyncFolder() || []); 
+      } 
+      catch (e) { 
+        console.error(e);
+        if (e.message.startsWith('HTTP 403')) { 
+          localStorage.removeItem('token'); 
+          alert('세션 만료, 재로그인 필요');
+          navigate('/'); 
+        } 
+      }
+    })();
+  }, []);
+
   // Watch folders and poll server
   useEffect(() => {
     // Cleanup
@@ -367,6 +402,18 @@ const handleLocalChange = async (filePath, id, root) => {
             }
             throw e;
           }
+
+          // 서버에만 있는 폴더 생성
+          for (const [rel, meta] of serverMap) {
+            if (rel.endsWith('/')) {
+              const dest = path.join(root, rel);
+              if (!fs.existsSync(dest)) {
+                fs.mkdirSync(dest, { recursive: true });
+                console.warn(`📁 [SyncManager] 서버 폴더 로컬에 생성됨 → ${dest}`);
+                ipcRenderer.send('sync-folder-added', { folderId: id, relativePath: rel });
+              }
+            }
+          }          
       
           // 로컬 폴더가 존재하지 않는 경우 전체 재다운로드
           if (!fs.existsSync(root)) {
@@ -467,21 +514,10 @@ const handleLocalChange = async (filePath, id, root) => {
 
       watcher
       .on('add', p => handleLocalAdd(p, id, root))
-      .on('change', p => {
-        setTimeout(() => handleLocalChange(p, id, root), 190); // 200ms 지연
-      })      
-      // .on('change', p => handleLocalChange(p, id, root))
+      .on('change', p => handleLocalChange(p, id, root))
       .on('unlink', p => handleLocalDelete(p, id, root))
-      .on('addDir', p => {
-        doSync();
-        const relDir = path.relative(root, p).replace(/\\/g,'/');
-        ipcRenderer.send('sync-folder-added', { folderId: id, relativePath: relDir });
-      })
-      .on('unlinkDir', p => {
-        doSync();
-        const relDir = path.relative(root, p).replace(/\\/g,'/');
-        ipcRenderer.send('sync-folder-deleted', { folderId: id, relativePath: relDir });
-      });
+      .on('addDir', p => handleLocalSubAdd(p, id, root))
+      .on('unlinkDir', p => handleLocalSubDelete(p, id, root));
 
       watchersRef.current[id] = watcher;
     });

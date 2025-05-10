@@ -83,7 +83,7 @@ export default function FolderPage() {
         };
       });
 
-      console.log('🔷 [UI에 사용할 형태 - 중복 제거 완료]', mapped);
+      // console.log('🔷 [UI에 사용할 형태 - 중복 제거 완료]', mapped);
 
 
       // 현재 경로(subPath) 기준으로 서브폴더 추출
