@@ -83,20 +83,31 @@ export default function FolderPage() {
         };
       });
 
-      // console.log('🔷 [UI에 사용할 형태 - 중복 제거 완료]', mapped);
+      console.log('🔷 [UI에 사용할 형태 - 중복 제거 완료]', mapped);
 
 
       // 현재 경로(subPath) 기준으로 서브폴더 추출
       const dirSet = new Set();
       mapped.forEach(item => {
         const rel = item.fileName;
+        const normalizedRel = rel.replace(/^\/+/, '').replace(/\/+$/, ''); // 슬래시 정리
         const prefix = subPath ? subPath + '/' : '';
-        if (!rel.startsWith(prefix)) return;
-        const remainder = rel.slice(prefix.length);
+        if (!normalizedRel.startsWith(prefix)) return;
+        const remainder = normalizedRel.slice(prefix.length);
+        if (remainder === '') return; // 자기 자신은 무시
         const segments = remainder.split('/');
         if (segments.length > 1) {
           dirSet.add(segments[0]);
         }
+        console.log('[DEBUG] fileName:', rel, '→ remainder:', remainder, '→ segments:', segments);
+        // const rel = item.fileName;
+        // const prefix = subPath ? subPath + '/' : '';
+        // if (!rel.startsWith(prefix)) return;
+        // const remainder = rel.slice(prefix.length);
+        // const segments = remainder.split('/');
+        // if (segments.length > 1) {
+        //   dirSet.add(segments[0]);
+        // }
       });
       const dirItems = Array.from(dirSet).map(name => ({
         fileId: `dir__${subPath ? `${subPath}/${name}` : name}`,

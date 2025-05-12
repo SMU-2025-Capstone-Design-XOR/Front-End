@@ -25,7 +25,7 @@ export default function SyncManager() {
   const initialSyncDoneRef    = useRef({}); // Tracks if initial sync is completed per folder
   const navigate              = useNavigate();
 
-  // ── 전체 폴더 메타 스캔 ──
+
 // ── 전체 파일 메타 스캔 ──
 function buildClientFiles(root) {
   const results = [];
@@ -127,6 +127,8 @@ function buildClientFiles(root) {
       clientMap.set(rel, newFileMeta);
 
       for (const [serverRel, serverMetaItem] of serverMap.entries()) {
+        if (serverRel.endsWith('/')) continue; // ← 🛠 폴더 엔트리는 무시
+
         if (!localPaths.has(serverRel)) {
           console.warn(`☁️ 서버에만 있음 → 로컬로 다운로드: ${serverRel}`);
           const blob = await downloadFolderFile(id, serverRel);
@@ -150,11 +152,9 @@ function buildClientFiles(root) {
         }
       }
 
-      // clientMap.set(rel, newFileMeta);
       prevClientMapRef.current[id] = clientMap;
   
     } catch (e) {
-      // console.error(`❌ handleLocalAdd[${id}]`, e);
       console.warn(`handleLocalAdd[${id}]`, e);
     }
   }
@@ -290,48 +290,6 @@ const handleLocalChange = async (filePath, id, root) => {
     }
   }
 
-  // 메인 폴더 내 서브폴더 삭제 처리
-  // useEffect(() => {
-  //   // console.log('SyncManager - folders 업데이트:', JSON.stringify(folders, null, 2));
-  //   const onDeleteDir = (_e, payload) => {
-  //     try {
-  //       // 넘겨받은 payload 매개변수에 대응하는 값 넘겨받음
-  //       const { folderId, relativePath } = payload;
-  //       // 디버깅 처리
-  //       console.warn('onDeleteDir - payload:', payload);
-  //       console.warn('onDeleteDir - folders:', JSON.stringify(folders, null, 2));
-
-  //       if (!folderId || !relativePath) {
-  //         console.warn('onDeleteDir - 유효하지 않은 payload:', payload);
-  //         return;
-  //       }
-  //       // IPC 통신을 통해 넘어온 삭제요청 파일의 존재 여부를 검사 -> 파일의 절대경로를 통해 상대경로를 구함
-  //       const folder = folders.find(f => f.id === folderId);
-  //       if (!folder) {
-  //         console.warn(`onDeleteDir - folderId ${folderId}에 해당하는 폴더를 찾지 못함.`);
-  //         return;
-  //       }
-  //       const root = folder.folderPath;
-  //       const fullPath = path.join(root, relativePath);
-  //       // 서버에서 삭제 요청을 한 것이므로 로컬에서 삭제해야한다.
-  //       if (fs.existsSync(fullPath)) {
-  //         fs.rmSync(fullPath, { recursive: true, force: true });
-  //         console.warn(`📁 [SyncManager] 서브 폴더 삭제 완료 → ${fullPath}`);
-  
-  //         // UI 갱신
-  //         ipcRenderer.send('sync-file-deleted', { folderId, relativePath });
-  //       }
-  
-  //     } catch (error) {
-  //       console.error('onDeleteDir - 에러:', error);
-  //     }
-  //   };
-  //   ipcRenderer.on('delete-subfolder', onDeleteDir);
-  //   return () => {
-  //     ipcRenderer.removeListener('delete-subfolder', onDeleteDir);
-  //   };
-  // }, [folders]);
-
   // 루트경로에서 메인폴더 추가/삭제 동시 처리
   useEffect(() => {
     const onAdd = (_e, folder) => {
@@ -376,6 +334,7 @@ const handleLocalChange = async (filePath, id, root) => {
     // Cleanup
     Object.values(watchersRef.current).forEach(w => w.close());
     Object.values(intervalsRef.current).forEach(i => clearInterval(i));
+
     watchersRef.current = {};
     intervalsRef.current = {};
     prevClientMapRef.current = {};
@@ -386,124 +345,70 @@ const handleLocalChange = async (filePath, id, root) => {
       prevClientMapRef.current[id] = new Map();
       initialSyncDoneRef.current[id] = false;
 
-      const doSync = async () => {
-        try {
-          // 서버에서 폴더가 삭제되었는지 체크
-          try {
-            await getSyncFolder();
-          } catch (e) {
-            if (e.message.startsWith('HTTP 404')) {
-              console.warn(`✂️ [SyncManager] 서버에서 폴더(${id}) 삭제됨 → 로컬에서도 제거`);
-              watchersRef.current[id]?.close();
-              clearInterval(intervalsRef.current[id]);
-              fs.rmSync(root, { recursive: true, force: true });
-              setFolders(prev => prev.filter(f => f.id !== id));
-              return;
-            }
-            throw e;
-          }
+      // const doSync = async () => {
+      //   try {
+      //     // 서버에서 폴더가 삭제되었는지 체크
+      //     try {
+      //       await getSyncFolder();
+      //     } catch (e) {
+      //       if (e.message.startsWith('HTTP 404')) {
+      //         console.warn(`✂️ [SyncManager] 서버에서 폴더(${id}) 삭제됨 → 로컬에서도 제거`);
+      //         watchersRef.current[id]?.close();
+      //         clearInterval(intervalsRef.current[id]);
+      //         fs.rmSync(root, { recursive: true, force: true });
+      //         setFolders(prev => prev.filter(f => f.id !== id));
+      //         return;
+      //       }
+      //       throw e;
+      //     }       
+      
+      //     // 로컬 폴더가 존재하지 않는 경우 전체 재다운로드
+      //     if (!fs.existsSync(root)) {
+      //       console.warn(`📁 [SyncManager] 로컬 폴더가 사라졌습니다. 재생성 후 전체 다운로드 → ${root}`);
+      //       fs.mkdirSync(root, { recursive: true });
+      //       const serverList = await getFolderFileList(id);
+      //       for (const f of serverList) {
+      //         const rel = f.relativePath || f.originalName;
+      //         const dest = path.join(root, rel);
+      //         // 1) 디렉터리면 폴더 생성만
+      //         if (rel.endsWith('/')) {
+      //           if (!fs.existsSync(dest)) {
+      //             fs.mkdirSync(dest, { recursive: true });
+      //             ipcRenderer.send('sync-folder-added', { folderId: id, relativePath: rel });
+      //           }
+      //           continue;
+      //         }
+      //         // 2) 파일이면 다운로드
+      //         try {
+      //           const blob = await downloadFolderFile(id, rel);
+      //           const buf = await blob.arrayBuffer();
+      //           fs.mkdirSync(path.dirname(dest), { recursive: true });
+      //           fs.writeFileSync(dest, Buffer.from(buf));
+      //           ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
+      //         } catch (e) {
+      //           if (e.message.startsWith('HTTP 404')) {
+      //             console.warn(`📁 [SyncManager] 다운로드 실패 (404): ${rel}`);
+      //           } else {
+      //             console.error(`📁 [SyncManager] 다운로드 실패: ${rel}`, e);
+      //           }
+      //         }
+      //       }
+      //       initialSyncDoneRef.current[id] = true;
+      //       return;
+      //     }
+      
+      //     cleanupEmptyDirs(root);
+      //     initialSyncDoneRef.current[id] = true;
+      //     prevClientMapRef.current[id] = localMap;
+      
+      //   } catch (e) {
+      //     console.error('📁 [SyncManager] 동기화 중 에러 발생:', e);
+      //   }
+      // };      
 
-          // 서버에만 있는 폴더 생성
-          for (const [rel, meta] of serverMap) {
-            if (rel.endsWith('/')) {
-              const dest = path.join(root, rel);
-              if (!fs.existsSync(dest)) {
-                fs.mkdirSync(dest, { recursive: true });
-                console.warn(`📁 [SyncManager] 서버 폴더 로컬에 생성됨 → ${dest}`);
-                ipcRenderer.send('sync-folder-added', { folderId: id, relativePath: rel });
-              }
-            }
-          }          
-      
-          // 로컬 폴더가 존재하지 않는 경우 전체 재다운로드
-          if (!fs.existsSync(root)) {
-            console.warn(`📁 [SyncManager] 로컬 폴더가 사라졌습니다. 재생성 후 전체 다운로드 → ${root}`);
-            fs.mkdirSync(root, { recursive: true });
-            const serverList = await getFolderFileList(id);
-            for (const f of serverList) {
-              const rel = f.relativePath || f.originalName;
-              try {
-                const blob = await downloadFolderFile(id, rel);
-                const buf = await blob.arrayBuffer();
-                const dest = path.join(root, rel);
-                fs.mkdirSync(path.dirname(dest), { recursive: true });
-                fs.writeFileSync(dest, Buffer.from(buf));
-                ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
-              } catch (e) {
-                if (e.message.startsWith('HTTP 404')) {
-                  console.warn(`📁 [SyncManager] 다운로드 실패 (404): ${rel}`);
-                } else {
-                  console.error(`📁 [SyncManager] 다운로드 실패: ${rel}`, e);
-                }
-              }
-            }
-            initialSyncDoneRef.current[id] = true;
-            return;
-          }
-      
-          const serverList = await getFolderFileList(id);
-          const serverMap = new Map(serverList.map(f => [f.relativePath || f.originalName, f]));
-          const localFiles = buildClientFiles(root);
-          const localMap = new Map(localFiles.map(f => [f.relativePath, f]));
-      
-          // 1) 서버에 없는 로컬 항목 먼저 삭제
-          for (const [rel, meta] of localMap) {
-            if (!serverMap.has(rel)) {
-              const full = path.join(root, rel);
-              if (meta.isDirectory) {
-                fs.rmSync(full, { recursive: true, force: true });
-              } else {
-                fs.unlinkSync(full);
-              }
-              ipcRenderer.send('sync-file-deleted', { folderId: id, relativePath: rel });
-            }
-          }
-      
-          // 2) 서버에만 있는 항목 다운로드 (폴더는 제외)
-          for (const [rel, meta] of serverMap) {
-            if (rel.endsWith('/')) continue; // 폴더는 다운로드 대상에서 제외
-      
-            if (!localMap.has(rel)) {
-              console.warn(`📁 [SyncManager] 파일 다운로드 → ${rel}`);
-              try {
-                const blob = await downloadFolderFile(id, rel);
-                const buf = await blob.arrayBuffer();
-                const dest = path.join(root, rel);
-                fs.mkdirSync(path.dirname(dest), { recursive: true });
-                fs.writeFileSync(dest, Buffer.from(buf));
-                ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
-              } catch (e) {
-                if (e.message.startsWith('HTTP 404')) {
-                  console.warn(`📁 [SyncManager] 다운로드 실패 (서버에 없음): ${rel}`);
-                  serverMap.delete(rel);
-
-                  const fullPath = path.join(root, rel);
-                  if (fs.existsSync(fullPath)) {
-                    fs.unlinkSync(fullPath);
-                    ipcRenderer.send('sync-file-deleted', { folderId: id, relativePath: rel });
-                  }
-
-                } else {
-                  console.error(`📁 [SyncManager] 다운로드 실패: ${rel}`, e);
-                }
-              }
-            }
-          }
-      
-          cleanupEmptyDirs(root);
-          initialSyncDoneRef.current[id] = true;
-          prevClientMapRef.current[id] = localMap;
-      
-        } catch (e) {
-          console.error('📁 [SyncManager] 동기화 중 에러 발생:', e);
-        }
-      };      
-
-      doSync();
-      intervalsRef.current[id] = setInterval(doSync, 5000);
+      // doSync();
 
       // File system watcher
-      // const watcher = chokidar.watch(root, { ignoreInitial: true, depth: Infinity });
       const watcher = chokidar.watch(root, {
         ignored: /(^|[\/\\])\..+|~$|\.swp$/,
         ignoreInitial: true,
