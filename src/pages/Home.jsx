@@ -9,8 +9,6 @@ import { Buffer } from 'buffer';
 
 import createSync from '../assets/Home/create-sync.svg';
 import syncIcon   from '../assets/Home/sync.svg';
-// import folderIcon from '../assets/Home/folder.svg';
-// import personIcon from '../assets/Home/person-24.svg';
 import '../css/home.css';
 
 import FolderContextMenu from '../components/FolderContextMenu';

@@ -9,6 +9,10 @@ import personIcon from '../assets/Home/person-24.svg';
 import { UserContextMenu } from '../components/UserContextMenu';
 import FolderContextMenu from '../components/FolderContextMenu';
 
+import backroot from '../assets/InFolder/back-root.svg';
+import subfold from '../assets/InFolder/sub.svg';
+import filee from '../assets/InFolder/file.svg';
+import '../css/home.css';
 
 
 import {
@@ -429,49 +433,40 @@ const handlefoldDelete = async () => {
   };
 
   return (
-    <div style={{ height:'100vh', display:'flex', flexDirection:'column' }}>
-      {/* ── 헤더 ── */}
-      <header style={{
-        display: 'flex', alignItems: 'center',
-        padding: '0 16px', height: '72px',
-        backgroundColor:'#f2f2f2', borderBottom:'1px solid #dee5ed'
-      }}>
-        <button onClick={handleBack} style={{ fontSize:'24px', marginRight:'16px', background:'none', border:'none', cursor:'pointer' }}>←</button>
-        <div style={{ flexGrow:1, fontWeight:'bold', fontSize:'18px' }}>
-          {folderPath}
-        </div>
-        <div style={{ marginRight:'16px', fontSize:'16px' }}>{username}</div>
-        <img
-          src={personIcon}
-          alt="User"
-          onContextMenu={showUserMenu}
-          style={{ width:24, height:24, cursor:'pointer' }}
-        />
+    <div className="home">
+      {/* 헤더 */}
+      <div className="header">
+        <div className="folder-icon"/>
+        <div className="header-title">{folderPath}</div>
+        <div className="username">{username}</div>
+        <div className="person-icon" onContextMenu={showUserMenu}/>
         {userMenu.visible && (
           <UserContextMenu
-            x={userMenu.x}
-            y={userMenu.y}
-            onLogout={handleLogout}
-            onClose={closeUserMenu}
+            x={userMenu.x} y={userMenu.y}
+            onLogout={handleLogout} onClose={closeUserMenu}
           />
         )}
-      </header>
+      </div>
 
-      {/* ── 메인: 파일 리스트 ── */}
-      <main style={{ padding:16, overflowY:'auto', flexGrow:1, background:'#fff' }}>
+      {/* Back root + Sub Folder + document */}
+      <div className="home-main">
+          <div className="fold-wrapper" onClick={handleBack}>
+          <img src={backroot} alt=""/>
+          <div className="fold-label">..</div>
+        </div>
+
         {fileList.map(item => (
           <div
             key={`${item.fileId}__${item.fileName}`}  /* fileId 와 fileName 을 합쳐서 유니크 key */
+            className="fold-wrapper"
             onDoubleClick={() => handleDoubleClick(item)}
             onContextMenu={item.isDirectory ? showCtx(item.fileId, item.fileName) : (e) => showFileMenu(e, item)}
-            style={{ display:'flex', alignItems:'center', padding:'8px 0', cursor: item.isDirectory ? 'pointer' : 'default' }}
           >
-            <span style={{ marginRight: 8 }}>{item.isDirectory ? '📁' : '📄'}</span>
-            <span style={{ flexGrow: 1 }}>{item.name}</span>
-            <span style={{ fontSize: '12px', color: '#888' }}>{item.lastModified}</span>
+            <img src={item.isDirectory ? subfold : filee} alt=""/>
+            <div className="fold-label">{item.name}</div>
           </div>
         ))}
-      </main>
+      </div>
 
       {/* FolderContextMenu */}
       <FolderContextMenu
@@ -481,8 +476,8 @@ const handlefoldDelete = async () => {
         onInfo={handlefoldInfo}
         onDelete={handlefoldDelete}
       />
+
     </div>
 
-    
   );
 }
