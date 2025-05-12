@@ -8,6 +8,9 @@ const os = require('os');
 
 remoteMain.initialize();
 
+// ✅ 1. clientMapStore 초기화
+global.clientMapStore = {};  // 폴더 ID -> 파일 목록 매핑
+
 function createXorRoot() {
   const xorRoot = path.join(os.homedir(), 'XOR');
   if (!fs.existsSync(xorRoot)) {
@@ -51,18 +54,20 @@ app.whenReady().then(() => {
   ipcMain.on('sync-file-updated',  (e, d) => broadcast('sync-file-updated',  d));
   ipcMain.on('sync-folder-added',   (e, d) => broadcast('sync-folder-added',   d));
   ipcMain.on('sync-folder-removed', (e, d) => broadcast('sync-folder-removed', d));
+  ipcMain.on('sub-folder-added',   (e, d) => broadcast('sub-folder-added',   d));
+  ipcMain.on('sub-folder-removed', (e, d) => broadcast('sub-folder-removed', d));
 
 });
 
-// helper function
-function broadcast(channel, data){
-  BrowserWindow.getAllWindows().forEach(w => w.webContents.send(channel, data));
-}
+// ✅ 3. clientMapStore에 파일 목록 저장 요청 처리
+ipcMain.handle('set-client-map', (event, { folderId, fileMap }) => {
+  global.clientMapStore[folderId] = fileMap;
+  console.log(`🗂️ Set client map for folderId=${folderId}`);
+  return true;
+});
 
-
-app.on('window-all-closed', () => {
-  // macOS 외 모든 플랫폼에서 앱 종료 :contentReference[oaicite:1]{index=1}
-  if (process.platform !== 'darwin') app.quit();
+ipcMain.handle('get-client-map', (event, folderId) => {
+  return global.clientMapStore[folderId] ?? {};
 });
 
 // 폴더 선택 IPC
@@ -72,3 +77,13 @@ ipcMain.handle('open-folder-dialog', async () => {
   });
   return canceled ? null : filePaths[0];
 });
+
+app.on('window-all-closed', () => {
+  // macOS 외 모든 플랫폼에서 앱 종료 :contentReference[oaicite:1]{index=1}
+  if (process.platform !== 'darwin') app.quit();
+});
+
+// helper function
+function broadcast(channel, data){
+  BrowserWindow.getAllWindows().forEach(w => w.webContents.send(channel, data));
+}

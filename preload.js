@@ -13,6 +13,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 저장 대화상자
   showSaveDialog: options => ipcRenderer.invoke('show-save-dialog', options),
 
+  getClientMap: (folderId) => {
+    // main에서 prevClientMapRef 정보를 safely 가져오는 구현
+    return global.clientMapStore?.[folderId] ?? {};
+  },
+
   // Node API
   fs,
   path,

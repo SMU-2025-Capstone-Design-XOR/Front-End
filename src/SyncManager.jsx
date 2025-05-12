@@ -260,7 +260,7 @@ const handleLocalChange = async (filePath, id, root) => {
         console.log(`📁 [SyncManager] 서브폴더 추가 → ${rel}`);
         clientMap.set(rel, { relativePath: rel, originalName: rel, type: 'folder' });
         prevClientMapRef.current[id] = clientMap;
-        ipcRenderer.send('sync-folder-added', { folderId: id, relativePath: rel });
+        ipcRenderer.send('sub-folder-added', { folderId: id, relativePath: rel });
       }
     } catch (e) {
       console.error(`❌ handleLocalSubAdd[${id}]`, e);
@@ -283,7 +283,7 @@ const handleLocalChange = async (filePath, id, root) => {
         }
         clientMap.delete(rel);
         prevClientMapRef.current[id] = clientMap;
-        ipcRenderer.send('sync-folder-removed', { folderId: id, relativePath: rel });
+        ipcRenderer.send('sub-folder-removed', { folderId: id, relativePath: rel });
       }
     } catch (e) {
       console.error(`❌ handleLocalSubDelete[${id}]`, e);
@@ -292,11 +292,11 @@ const handleLocalChange = async (filePath, id, root) => {
 
   // 루트경로에서 메인폴더 추가/삭제 동시 처리
   useEffect(() => {
-    const onAdd = (_e, folder) => {
+    const onSyncFolderAdd = (_e, folder) => {
       console.warn(`📁 [SyncManager] 폴더 추가 수신 → id=${folder.id}, path=${folder.folderPath}`);
       setFolders(prev => [...prev, folder]);
     };
-    const onRemove = (_e, { folderId, folderPath }) => {
+    const onSyncFolderRemove = (_e, { folderId, folderPath }) => {
       console.warn(`📁 [SyncManager] 폴더 삭제 수신 → id=${folderId}`);
       if (folderPath && fs.existsSync(folderPath)) {
         fs.rmdirSync(folderPath, { recursive: true });
@@ -304,11 +304,32 @@ const handleLocalChange = async (filePath, id, root) => {
       }
       setFolders(prev => prev.filter(f => f.id !== folderId));
     };
-    ipcRenderer.on('sync-folder-added',   onAdd);
-    ipcRenderer.on('sync-folder-removed', onRemove);
+    ipcRenderer.on('sync-folder-added',   onSyncFolderAdd);
+    ipcRenderer.on('sync-folder-removed', onSyncFolderRemove);
     return () => {
-      ipcRenderer.removeListener('sync-folder-added',   onAdd);
-      ipcRenderer.removeListener('sync-folder-removed', onRemove);
+      ipcRenderer.removeListener('sync-folder-added',   onSyncFolderAdd);
+      ipcRenderer.removeListener('sync-folder-removed', onSyncFolderRemove);
+    };
+  }, []);
+
+  // ── 2) 서브폴더 추가/삭제 이벤트만 처리 ──
+  useEffect(() => {
+    const onSubFolderAdd = (_e, { folderId, relativePath }) => {
+      console.log(`📂 [SyncManager] 서브폴더 추가 수신 → folderId=${folderId}, rel=${relativePath}`);
+      // 이미 prevClientMapRef에 등록된 폴더는 무시되므로,
+      // 추가로 뭔가 할 게 없다면 이 자리에 로깅만 남기셔도 됩니다.
+      // (필요시 UI에 빈폴더 보존 로직 등 추가)
+    };
+    const onSubFolderRemove = (_e, { folderId, relativePath }) => {
+      console.log(`📂 [SyncManager] 서브폴더 삭제 수신 → folderId=${folderId}, rel=${relativePath}`);
+      // prevClientMapRef에서도 지워졌다면 별도 처리 불필요
+    };
+
+    ipcRenderer.on('sub-folder-added',   onSubFolderAdd);
+    ipcRenderer.on('sub-folder-removed', onSubFolderRemove);
+    return () => {
+      ipcRenderer.removeListener('sub-folder-added',   onSubFolderAdd);
+      ipcRenderer.removeListener('sub-folder-removed', onSubFolderRemove);
     };
   }, []);
 
@@ -421,7 +442,22 @@ const handleLocalChange = async (filePath, id, root) => {
       .on('add', p => handleLocalAdd(p, id, root))
       .on('change', p => handleLocalChange(p, id, root))
       .on('unlink', p => handleLocalDelete(p, id, root))
-      .on('addDir', p => handleLocalSubAdd(p, id, root))
+      // .on('addDir', p => handleLocalSubAdd(p, id, root))
+      // 빈 서브폴더 추적 로직
+      .on('addDir', (p) => {
+        const rel = path.relative(root, p);
+        if (rel === '') return; // root는 제외
+        if (!prevClientMapRef.current[id]) {
+          prevClientMapRef.current[id] = {};
+        }
+        prevClientMapRef.current[id][rel + '/'] = {
+          type: 'directory',
+          sha256: '',
+          updatedAt: Date.now(),
+        };
+      
+        ipcRenderer.send('sub-folder-added', { folderId: id, relativePath: rel });
+      })
       .on('unlinkDir', p => handleLocalSubDelete(p, id, root));
 
       watchersRef.current[id] = watcher;

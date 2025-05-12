@@ -5,12 +5,10 @@ import { Menu, MenuItem, getCurrentWindow } from '@electron/remote';
 import { dialog } from '@electron/remote';
 import chokidar from 'chokidar';
 const { ipcRenderer } = window.require('electron');
-import folderIcon from '../assets/Home/folder.svg';
 import personIcon from '../assets/Home/person-24.svg';
 import { UserContextMenu } from '../components/UserContextMenu';
 import FolderContextMenu from '../components/FolderContextMenu';
-import SyncManager from '../SyncManager';
-import { stringify } from 'flatted';
+
 
 
 import {
@@ -100,15 +98,31 @@ export default function FolderPage() {
           dirSet.add(segments[0]);
         }
         console.log('[DEBUG] fileName:', rel, '→ remainder:', remainder, '→ segments:', segments);
-        // const rel = item.fileName;
-        // const prefix = subPath ? subPath + '/' : '';
-        // if (!rel.startsWith(prefix)) return;
-        // const remainder = rel.slice(prefix.length);
-        // const segments = remainder.split('/');
-        // if (segments.length > 1) {
-        //   dirSet.add(segments[0]);
-        // }
       });
+
+      // 🔽 여기에 로컬 빈 폴더 추가
+      try {
+        const clientMap = window.electronAPI.getClientMap(id); // preload 함수 필요
+        if (clientMap) {
+          for (const rel in clientMap) {
+            const entry = clientMap[rel];
+            if (entry.type !== 'directory') continue;
+            const normalizedRel = rel.replace(/^\/+/, '').replace(/\/+$/, '');
+            const prefix = subPath ? subPath + '/' : '';
+            if (!normalizedRel.startsWith(prefix)) continue;
+            const remainder = normalizedRel.slice(prefix.length);
+            if (!remainder || remainder.includes('//')) continue;
+            const segments = remainder.split('/');
+            if (segments.length === 1) {
+              dirSet.add(segments[0]);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('🔶 로컬 빈 폴더 처리 중 오류:', e);
+      }
+
+      
       const dirItems = Array.from(dirSet).map(name => ({
         fileId: `dir__${subPath ? `${subPath}/${name}` : name}`,
         fileName: subPath ? `${subPath}/${name}` : name,
@@ -225,7 +239,6 @@ export default function FolderPage() {
       ignored: /(^|[\/\\])\..+|~$|\.swp$/,
       persistent: true,
       ignoreInitial: true,
-      // depth: 0,  // 서브 폴더까지 지원하려면 Infinity 로 변경
       depth: Infinity,
       awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 100 }
     });
@@ -351,14 +364,13 @@ const handlefoldDelete = async () => {
       // IPC로 전송할 객체
     const payload = {
       folderId: Number(id),
-      // relativePath: relPath ? String(relPath) : ''
       relativePath: ctxMenu.relativePath  // 순수 문자열
     };
     
     // 직렬화 가능한지 확인
     console.log('handlefoldDelete - payload:', JSON.stringify(payload));
   
-    ipcRenderer.send('delete-subfolder', payload);
+    ipcRenderer.send('sub-folder-removed', payload);
     setCtxMenu((m) => ({ ...m, visible: false }));
   } catch (error) {
     console.error('handlefoldDelete - 에러', error)
