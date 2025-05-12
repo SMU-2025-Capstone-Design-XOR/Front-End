@@ -296,6 +296,25 @@ const handleLocalChange = async (filePath, id, root) => {
     }
   }
 
+  // ── 서버에서 서브폴더 삭제 동기화 ──
+  async function handleServerSubDelete(fullPath, id, root) {
+    try {
+      if (fs.existsSync(fullPath) && fs.lstatSync(fullPath).isDirectory()) {
+        // fs.rmdirSync(fullPath, { recursive: true }); // 로컬 디렉토리 삭제
+        console.log(`📁 [SyncManager] 서버에서 서브폴더 삭제 반영됨 → ${fullPath}`);
+  
+        // 클라이언트 맵에서 제거
+        const rel = path.relative(root, fullPath).replace(/\\/g, '/') + '/';
+        const clientMap = prevClientMapRef.current[id];
+        if (clientMap && clientMap.has(rel)) {
+          clientMap.delete(rel);
+        }
+      }
+    } catch (e) {
+      console.error(`❌ handleServerSubDelete[${id}]`, e);
+    }
+  }
+
   // 루트경로에서 메인폴더 추가/삭제 동시 처리
   useEffect(() => {
     const onSyncFolderAdd = (_e, folder) => {
@@ -318,7 +337,7 @@ const handleLocalChange = async (filePath, id, root) => {
     };
   }, []);
 
-  // ── 2) 서브폴더 추가/삭제 이벤트만 처리 ──
+  // ── 2) 로컬에서 서브폴더 추가/삭제 이벤트만 처리 ──
   useEffect(() => {
     const onSubFolderAdd = (_e, { folderId, relativePath }) => {
       console.log(`📂 [SyncManager] 서브폴더 추가 수신 → folderId=${folderId}, rel=${relativePath}`);
@@ -338,6 +357,23 @@ const handleLocalChange = async (filePath, id, root) => {
       ipcRenderer.removeListener('sub-folder-removed', onSubFolderRemove);
     };
   }, []);
+
+
+  // 서버에서 서브폴더 삭제시 이벤트 처리
+  useEffect(() => {
+    ipcRenderer.on('sub-folder-removed-server', async (_, { folderId, relativePath }) => {
+      const root = folderPathMap.current[folderId];
+      if (!root) return;
+  
+      const fullPath = path.join(root, relativePath);
+      await handleServerSubDelete(fullPath, folderId, root);
+    });
+  
+    return () => {
+      ipcRenderer.removeAllListeners('sub-folder-removed-server');
+    };
+  }, []);
+
 
   // ── 초기 싱크폴더 로드 ──
   useEffect(() => {

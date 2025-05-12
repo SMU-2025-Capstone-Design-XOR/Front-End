@@ -56,6 +56,7 @@ app.whenReady().then(() => {
   ipcMain.on('sync-folder-removed', (e, d) => broadcast('sync-folder-removed', d));
   ipcMain.on('sub-folder-added',   (e, d) => broadcast('sub-folder-added',   d));
   ipcMain.on('sub-folder-removed', (e, d) => broadcast('sub-folder-removed', d));
+  ipcMain.on('sub-folder-removed-server', (e, d) => broadcast('sub-folder-removed', d));
 
 });
 

@@ -16,7 +16,6 @@ import {
   getFolderFileMeta,
   downloadFolderFile,
   deleteFolderFile,
-  deleteSyncFolder
 } from '../apiService';
 
 const fs     = window.require('fs');
@@ -81,7 +80,7 @@ export default function FolderPage() {
         };
       });
 
-      console.log('🔷 [UI에 사용할 형태 - 중복 제거 완료]', mapped);
+      // console.log('🔷 [UI에 사용할 형태 - 중복 제거 완료]', mapped);
 
 
       // 현재 경로(subPath) 기준으로 서브폴더 추출
@@ -97,7 +96,7 @@ export default function FolderPage() {
         if (segments.length > 1) {
           dirSet.add(segments[0]);
         }
-        console.log('[DEBUG] fileName:', rel, '→ remainder:', remainder, '→ segments:', segments);
+        // console.log('[DEBUG] fileName:', rel, '→ remainder:', remainder, '→ segments:', segments);
       });
 
       // 🔽 여기에 로컬 빈 폴더 추가
@@ -356,27 +355,64 @@ const handlefoldInfo = () => {
 
 // ── 서브폴더 삭제하기(IPC 통신까지) --
 const handlefoldDelete = async () => {
-  try{
-    if (!window.confirm('삭제하시겠습니까?')) return setCtxMenu((m) => ({ ...m, visible: false }));
+  try {
+    if (!window.confirm('서브폴더를 정말 삭제하시겠습니까?')) {
+      return setCtxMenu((m) => ({ ...m, visible: false }));
+    }
 
-    // 문제 진단용 로그
-    console.log('handlefoldDelete - relPath:', ctxMenu.relativePath);
-      // IPC로 전송할 객체
-    const payload = {
-      folderId: Number(id),
-      relativePath: ctxMenu.relativePath  // 순수 문자열
-    };
-    
-    // 직렬화 가능한지 확인
-    console.log('handlefoldDelete - payload:', JSON.stringify(payload));
-  
-    ipcRenderer.send('sub-folder-removed', payload);
+    // 1. 상위 동기화 폴더 ID & 로컬 경로
+    const syncFolderId = Number(id);
+    // folderPath 는 useLocation().state.folderPath 로 받아온 동기화 루트
+    const localRoot = folderPath;
+    let relPath = ctxMenu.relativePath;
+    if (!relPath.endsWith('/')) relPath += '/';
+
+    console.log('▶️ handlefoldDelete - relPath:', relPath);
+
+    // 2. 서버에서 해당 폴더 내부 파일 목록 조회 (ID 포함)
+    const serverFiles = await getFolderFileList(syncFolderId);
+    const targetFiles = serverFiles.filter(f =>
+      typeof f.relativePath === 'string' &&
+      f.relativePath.startsWith(relPath) &&
+      !f.relativePath.endsWith('/')
+    );
+
+    console.log('▶️ 삭제 대상 파일:', targetFiles.map(f => f.relativePath));
+
+    // 3. 각 파일 삭제 (서버 + 로컬)
+    for (const file of targetFiles) {
+      const fileId = file.id ?? file.fileId;
+      if (!fileId) {
+        console.warn(`❗️ 파일 ID 없음: ${file.relativePath}`);
+        continue;
+      }
+      // 서버 삭제
+      await deleteFolderFile(syncFolderId, fileId);
+      // 로컬 삭제
+      const localFile = path.join(localRoot, file.relativePath);
+      if (fs.existsSync(localFile)) {
+        fs.unlinkSync(localFile);
+      }
+    }
+
+    // 4. 로컬 빈 서브폴더 삭제
+    const fullDir = path.join(localRoot, relPath);
+    if (fs.existsSync(fullDir)) {
+      await fs.promises.rmdir(fullDir, { recursive: true });
+    }
+
+    // 5. IPC로 서버→로컬 폴더 삭제 트리거
+    ipcRenderer.send('sub-folder-removed-server', {
+      folderId: syncFolderId,
+      relativePath: relPath
+    });
+
     setCtxMenu((m) => ({ ...m, visible: false }));
   } catch (error) {
-    console.error('handlefoldDelete - 에러', error)
+    console.error('handlefoldDelete - 에러', error);
+    alert('서브폴더 삭제에 실패했습니다: ' + error.message);
   }
 };
-
 
 
 
