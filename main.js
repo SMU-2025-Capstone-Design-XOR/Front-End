@@ -8,7 +8,7 @@ const os = require('os');
 
 remoteMain.initialize();
 
-// ✅ 1. clientMapStore 초기화
+// 1. clientMapStore 초기화
 global.clientMapStore = {};  // 폴더 ID -> 파일 목록 매핑
 
 function createXorRoot() {
@@ -37,6 +37,22 @@ function createUserFolder(username) {
       console.error('Failed to create user directory:', err);
     }
   }
+
+  // 계정 폴더 내에 숨김 'Delete' 폴더 자동 생성
+  const deleteDir = path.join(userDir, '_Delete');
+  if (!fs.existsSync(deleteDir)) {
+    try {
+      fs.mkdirSync(deleteDir, { recursive: true });
+      console.log(`🗑️ Delete directory created at ${deleteDir}`);
+      // Windows에서만 추가로 숨김 속성 설정
+      if (process.platform === 'win32') {
+        require('child_process').execSync(`attrib +H "${deleteDir}"`);
+      }
+    } catch (err) {
+      console.error('Failed to create or hide Delete folder:', err);
+    }
+  }
+
 
   return userDir;
 }
@@ -88,7 +104,7 @@ app.whenReady().then(() => {
   });
 });
 
-// ✅ 3. clientMapStore에 파일 목록 저장 요청 처리
+// clientMapStore에 파일 목록 저장 요청 처리
 ipcMain.handle('set-client-map', (event, { folderId, fileMap }) => {
   global.clientMapStore[folderId] = fileMap;
   console.log(`🗂️ Set client map for folderId=${folderId}`);
