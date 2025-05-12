@@ -13,6 +13,7 @@ global.clientMapStore = {};  // 폴더 ID -> 파일 목록 매핑
 
 function createXorRoot() {
   const xorRoot = path.join(os.homedir(), 'XOR');
+
   if (!fs.existsSync(xorRoot)) {
     try {
       fs.mkdirSync(xorRoot, { recursive: true });
@@ -21,6 +22,23 @@ function createXorRoot() {
       console.error('Failed to create XOR root:', err);
     }
   }
+
+  return xorRoot;
+}
+
+function createUserFolder(username) {
+  const userDir = path.join(os.homedir(), 'XOR', username);
+
+  if (!fs.existsSync(userDir)) {
+    try {
+      fs.mkdirSync(userDir, { recursive: true });
+      console.log(`🏠 User directory created at ${userDir}`);
+    } catch (err) {
+      console.error('Failed to create user directory:', err);
+    }
+  }
+
+  return userDir;
 }
 
 function createWindow() {
@@ -34,7 +52,6 @@ function createWindow() {
   });
 
   remoteMain.enable(win.webContents);
-  // cross-platform loadFile 사용 :contentReference[oaicite:0]{index=0}
   win.loadFile(path.join(__dirname, 'index.html'));
 
   // macOS에서 재실행 처리
@@ -49,6 +66,11 @@ app.whenReady().then(() => {
   createXorRoot();
   createWindow();
 
+  // IPC: 사용자 폴더 생성 요청 처리
+  ipcMain.handle('init-user-folder', (event, username) => {
+    return createUserFolder(username);
+  });
+
   ipcMain.on('sync-file-added',    (e, d) => broadcast('sync-file-added',    d));
   ipcMain.on('sync-file-deleted',  (e, d) => broadcast('sync-file-deleted',  d));
   ipcMain.on('sync-file-updated',  (e, d) => broadcast('sync-file-updated',  d));
@@ -58,6 +80,12 @@ app.whenReady().then(() => {
   ipcMain.on('sub-folder-removed', (e, d) => broadcast('sub-folder-removed', d));
   ipcMain.on('sub-folder-removed-server', (e, d) => broadcast('sub-folder-removed', d));
 
+  ipcMain.handle('open-folder-dialog', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      properties: ['openDirectory']
+    });
+    return canceled ? null : filePaths[0];
+  });
 });
 
 // ✅ 3. clientMapStore에 파일 목록 저장 요청 처리
@@ -72,12 +100,12 @@ ipcMain.handle('get-client-map', (event, folderId) => {
 });
 
 // 폴더 선택 IPC
-ipcMain.handle('open-folder-dialog', async () => {
-  const { canceled, filePaths } = await dialog.showOpenDialog({
-    properties: ['openDirectory']
-  });
-  return canceled ? null : filePaths[0];
-});
+// ipcMain.handle('open-folder-dialog', async () => {
+//   const { canceled, filePaths } = await dialog.showOpenDialog({
+//     properties: ['openDirectory']
+//   });
+//   return canceled ? null : filePaths[0];
+// });
 
 app.on('window-all-closed', () => {
   // macOS 외 모든 플랫폼에서 앱 종료 :contentReference[oaicite:1]{index=1}

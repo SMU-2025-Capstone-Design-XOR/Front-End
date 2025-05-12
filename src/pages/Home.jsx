@@ -34,7 +34,7 @@ const os = window.require('os');
 export default function Home() {
   const navigate = useNavigate();
   const username = localStorage.getItem('currentUser') || 'User';
-
+  const userDir = localStorage.getItem('userDir') || '';
   // 등록된 싱크 폴더 목록
   const [syncFolders, setSyncFolders] = useState([]);
 
@@ -42,37 +42,51 @@ export default function Home() {
   const watchersRef = useRef({});
 
   useEffect(() => {
+    if (!userDir) {
+      alert('로그아웃 됩니다.');
+      navigate('/');
+      return;
+    }
+
     (async () => {
       try {
         const data = await getSyncFolder();
-        setSyncFolders(Array.isArray(data) ? data : []);
+        // 기존 동기화 폴더 목록
+        const allFolders = Array.isArray(data) ? data : [];
+        // 사용자 계정 폴더 내의 동기화 폴더만 필터링
+        const userSyncFolders = allFolders.filter(folder => folder.folderPath.startsWith(userDir));
+        setSyncFolders(userSyncFolders);
+
       } catch (err) {
         if (err.message.startsWith('HTTP 403')) {
           localStorage.removeItem('token');
           alert('세션이 만료되었습니다. 다시 로그인 해주세요.');
           navigate('/');
         } else {
-          console.error(err);
-          alert('싱크 폴더 목록 로드 실패');
+          console.error('폴더 목록 로드 오류:', err);
+          alert('폴더 목록을 불러오지 못했습니다.');
         }
       }
-    })();    
-  }, []);
+    })();
+  }, [userDir, navigate]);
+
 
   // 2) “싱크 폴더 추가” 버튼 핸들러
   const handleSelectFolder = async () => {
     const sel = await ipcRenderer.invoke('open-folder-dialog');
     if (!sel) return;
 
-    // 1) XOR 루트 경로
-    const xorRoot = path.join(os.homedir(), 'XOR');
-    if (!fs.existsSync(xorRoot)) {
-      fs.mkdirSync(xorRoot, { recursive: true });
+    // 1) XOR 루트 폴더 -> 사용자 계정 폴더
+    const username = localStorage.getItem('currentUser') || 'User';
+    const userDir = path.join(os.homedir(), 'XOR', username);
+
+    if (!fs.existsSync(userDir)) {
+      fs.mkdirSync(userDir, { recursive: true });
     }
 
     // 2) 선택된 폴더 이름만 추출 → XOR 루트 아래에 디렉토리 생성
     const folderName = path.basename(sel);
-    const targetDir  = path.join(xorRoot, folderName);
+    const targetDir  = path.join(userDir, folderName);
     if (!fs.existsSync(targetDir)) {
       fs.mkdirSync(targetDir, { recursive: true });
       // (선택) 초기 내용 복사까지 하려면 다음 같이:
@@ -81,7 +95,6 @@ export default function Home() {
 
     try {
       // 3) 서버에 등록할 때는 targetDir 사용
-      const normalizedPath = targetDir.replace(/^\/+/, '');
       const created = await sendSyncFolder(targetDir);
 
       // 4) 로컬 메타 수집도 targetDir 에서
@@ -90,17 +103,14 @@ export default function Home() {
 
         const walk = (currentDir) => {
           const entries = fs.readdirSync(currentDir, { withFileTypes: true });
-
           for (const entry of entries) {
             const fullPath = path.join(currentDir, entry.name);
             const stat = fs.statSync(fullPath);
-
             if (entry.isFile()) {
               const buffer = fs.readFileSync(fullPath);
               const relativePath = path.relative(root, fullPath).replace(/\\/g, '/'); // 윈도우 호환
               const mimeType = mime.lookup(fullPath) || 'application/octet-stream';
               const hash = crypto.createHash('sha256').update(buffer).digest('hex');
-
               results.push({
                 originalName: relativePath,
                 relativePath: relativePath,

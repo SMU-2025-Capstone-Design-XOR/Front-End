@@ -1,6 +1,7 @@
 // src/pages/Login.jsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ipcRenderer } from 'electron';
 import '../css/login.css';
 
 // Figma-to-React가 만들어준 컴포넌트 경로로 import
@@ -17,7 +18,6 @@ const Login = () => {
   const [rememberId, setRememberId] = useState(!!savedUsername);
 
   const handleSubmit = async (e) => {
-    // console.log('▶️ handleSubmit 호출:', { username, password });
     e.preventDefault();
     try {
       const response = await fetch('http://15.164.33.175:8080/auth/login', {
@@ -36,6 +36,14 @@ const Login = () => {
         } else {
           localStorage.removeItem('rememberedUsername');
         }
+
+        // 사용자 폴더 생성 요청
+        const userDir = await ipcRenderer.invoke('init-user-folder', username);
+        console.log('User Directory:', userDir);
+
+        if (userDir) {
+          localStorage.setItem('userDir', userDir);
+        }        
 
         alert('로그인 성공!');
         navigate('/home');
