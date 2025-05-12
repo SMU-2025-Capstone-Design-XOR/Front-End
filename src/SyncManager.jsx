@@ -251,17 +251,23 @@ const handleLocalChange = async (filePath, id, root) => {
   }
 
   // ── 로컬에서 서브폴더 추가 동기화 ──
-  async function handleLocalSubAdd(fullPath, id, root) {
+  async function handleLocalSubAdd(folderPath, id, root) {
     try {
-      const rel = path.relative(root, fullPath).replace(/\\/g, '/') + '/';
-      if (rel.startsWith('.')) return;
-      const clientMap = prevClientMapRef.current[id] || new Map();
-      if (!clientMap.has(rel)) {
-        console.log(`📁 [SyncManager] 서브폴더 추가 → ${rel}`);
-        clientMap.set(rel, { relativePath: rel, originalName: rel, type: 'folder' });
-        prevClientMapRef.current[id] = clientMap;
-        ipcRenderer.send('sub-folder-added', { folderId: id, relativePath: rel });
+      const rel = path.relative(root, folderPath).replace(/\\/g, '/');
+      if (rel === '') return; // root는 제외
+      if (!prevClientMapRef.current[id]) {
+        prevClientMapRef.current[id] = {};
       }
+      // 이미 존재하는 경우 무시
+      if (prevClientMapRef.current[id][rel + '/']) return;
+      // 등록
+      prevClientMapRef.current[id][rel + '/'] = {
+        type: 'directory',
+        sha256: '',
+        updatedAt: Date.now(),
+      };
+      console.log(`📁 [SyncManager] 서브폴더 추가 → ${rel}/`);
+      ipcRenderer.send('sub-folder-added', { folderId: id, relativePath: rel });
     } catch (e) {
       console.error(`❌ handleLocalSubAdd[${id}]`, e);
     }
@@ -442,22 +448,7 @@ const handleLocalChange = async (filePath, id, root) => {
       .on('add', p => handleLocalAdd(p, id, root))
       .on('change', p => handleLocalChange(p, id, root))
       .on('unlink', p => handleLocalDelete(p, id, root))
-      // .on('addDir', p => handleLocalSubAdd(p, id, root))
-      // 빈 서브폴더 추적 로직
-      .on('addDir', (p) => {
-        const rel = path.relative(root, p);
-        if (rel === '') return; // root는 제외
-        if (!prevClientMapRef.current[id]) {
-          prevClientMapRef.current[id] = {};
-        }
-        prevClientMapRef.current[id][rel + '/'] = {
-          type: 'directory',
-          sha256: '',
-          updatedAt: Date.now(),
-        };
-      
-        ipcRenderer.send('sub-folder-added', { folderId: id, relativePath: rel });
-      })
+      .on('addDir', p => handleLocalSubAdd(p, id, root))
       .on('unlinkDir', p => handleLocalSubDelete(p, id, root));
 
       watchersRef.current[id] = watcher;
