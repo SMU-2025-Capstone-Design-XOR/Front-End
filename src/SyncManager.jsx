@@ -11,6 +11,7 @@ const path = window.require('path');
 import {
   getSyncFolder,
   getFolderFileList,
+  deleteSyncFolder,
   syncFolder,
   uploadFile,
   downloadFolderFile,
@@ -24,6 +25,7 @@ export default function SyncManager() {
   const prevClientMapRef      = useRef({}); // { [folderId]: Map<relativePath, FileMeta> }
   const initialSyncDoneRef    = useRef({}); // Tracks if initial sync is completed per folder
   const navigate              = useNavigate();
+  const folderPathMap = useRef({});
 
 
 // ── 전체 파일 메타 스캔 ──
@@ -300,7 +302,7 @@ const handleLocalChange = async (filePath, id, root) => {
   async function handleServerSubDelete(fullPath, id, root) {
     try {
       if (fs.existsSync(fullPath) && fs.lstatSync(fullPath).isDirectory()) {
-        // fs.rmdirSync(fullPath, { recursive: true }); // 로컬 디렉토리 삭제
+        fs.rmdirSync(fullPath, { recursive: true }); // 로컬 디렉토리 삭제
         console.log(`📁 [SyncManager] 서버에서 서브폴더 삭제 반영됨 → ${fullPath}`);
   
         // 클라이언트 맵에서 제거
@@ -314,12 +316,24 @@ const handleLocalChange = async (filePath, id, root) => {
       console.error(`❌ handleServerSubDelete[${id}]`, e);
     }
   }
+  // ── 로컬에서 메인폴더 삭제 동기화 ──
+  async function handleLocalRootDelete(id) {
+    // 1) 서버에 '동기화 폴더' 삭제 API 호출
+    await deleteSyncFolder(id); // API 서비스에 정의된 함수
+    // 2) IPC로 홈 화면에 알려주기
+    ipcRenderer.send('sync-folder-removed', { folderId: id, folderPath: folderPathMap.current[id] });
+    // 3) 로컬 map 정리
+    delete folderPathMap.current[id];
+    setFolders(prev => prev.filter(f => f.id !== id));
+  }
+  
 
   // 루트경로에서 메인폴더 추가/삭제 동시 처리
   useEffect(() => {
     const onSyncFolderAdd = (_e, folder) => {
       console.warn(`📁 [SyncManager] 폴더 추가 수신 → id=${folder.id}, path=${folder.folderPath}`);
       setFolders(prev => [...prev, folder]);
+      folderPathMap.current[folder.id] = folder.folderPath;
     };
     const onSyncFolderRemove = (_e, { folderId, folderPath }) => {
       console.warn(`📁 [SyncManager] 폴더 삭제 수신 → id=${folderId}`);
@@ -327,6 +341,7 @@ const handleLocalChange = async (filePath, id, root) => {
         fs.rmdirSync(folderPath, { recursive: true });
         console.warn(`📁 [SyncManager] 로컬 폴더 삭제 → ${folderPath}`);
       }
+      delete folderPathMap.current[folderId];
       setFolders(prev => prev.filter(f => f.id !== folderId));
     };
     ipcRenderer.on('sync-folder-added',   onSyncFolderAdd);
@@ -485,7 +500,16 @@ const handleLocalChange = async (filePath, id, root) => {
       .on('change', p => handleLocalChange(p, id, root))
       .on('unlink', p => handleLocalDelete(p, id, root))
       .on('addDir', p => handleLocalSubAdd(p, id, root))
-      .on('unlinkDir', p => handleLocalSubDelete(p, id, root));
+      .on('unlinkDir', p => {
+        const rel = path.relative(root, p).replace(/\\/g, '/');
+        if (rel === '') {
+          // root 삭제
+          watcher.close();
+          handleLocalRootDelete(id);
+        } else {
+          handleLocalSubDelete(p, id, root);
+        }
+      });
 
       watchersRef.current[id] = watcher;
     });

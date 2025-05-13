@@ -7,7 +7,7 @@ import chokidar from 'chokidar';
 const { ipcRenderer } = window.require('electron');
 import personIcon from '../assets/Home/person-24.svg';
 import { UserContextMenu } from '../components/UserContextMenu';
-import FolderContextMenu from '../components/FolderContextMenu';
+import FolderContextMenu from '../components/SubFolderContextMenu';
 
 import backroot from '../assets/InFolder/back-root.svg';
 import subfold from '../assets/InFolder/sub.svg';
@@ -273,7 +273,7 @@ export default function FolderPage() {
   const handleDownload = async (relativePath) => {
     try {
       // 항상 파일의 상대경로 문자열을 서버에 전달
-      const blob = await downloadFolderFile(id, relativePath); 
+      const blob = await downloadFolderFile(id, relativePath);
       const buf  = await blob.arrayBuffer();
       // 3) 저장 다이얼로그
       const savePath = path.join(folderPath, relativePath)
@@ -450,7 +450,7 @@ const handlefoldDelete = async () => {
 
       {/* Back root + Sub Folder + document */}
       <div className="home-main">
-          <div className="fold-wrapper" onClick={handleBack}>
+          <div className="fold-wrapper" onDoubleClick={handleBack}>
           <img src={backroot} alt=""/>
           <div className="fold-label">..</div>
         </div>
@@ -475,6 +475,7 @@ const handlefoldDelete = async () => {
         y={ctxMenu.y}
         onInfo={handlefoldInfo}
         onDelete={handlefoldDelete}
+        onClose={closeUserMenu}
       />
 
     </div>

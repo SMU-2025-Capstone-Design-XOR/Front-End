@@ -3,11 +3,12 @@ import React from 'react';
 import PropTypes from 'prop-types';
 
 import folderInfoSvg from '../assets/Context_Menu/folder-information.svg';
+import redownSvg from '../assets/Context_Menu/folder-redownload.svg';
 import deleteSvg     from '../assets/Context_Menu/folder-delete.svg';
 
 import '../css/folder_context.css';
 
-const FolderContextMenu = ({ x, y, visible, onInfo, onDelete }) => {
+const FolderContextMenu = ({ x, y, visible, onInfo, onRedown, onDelete }) => {
   if (!visible) return null;
 
   return (
@@ -23,6 +24,12 @@ const FolderContextMenu = ({ x, y, visible, onInfo, onDelete }) => {
       </div>
 
       {/* 두 번째 메뉴 */}
+      <div className="component" onClick={onRedown}>
+          <img className="icon" src={redownSvg} alt="Sync delete" />
+          <span className="label">폴더 재다운로드</span>
+        </div>  
+
+      {/* 세 번째 메뉴 */}
       <div className="component" onClick={onDelete}>
         <img className="icon" src={deleteSvg} alt="Sync delete" />
         <span className="label">폴더 삭제하기</span>

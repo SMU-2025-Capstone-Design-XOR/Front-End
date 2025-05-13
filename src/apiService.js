@@ -125,6 +125,7 @@ export const downloadFolderFile = async (syncFolderId, relativePath) => {
     .split('/')
     .map(encodeURIComponent)
     .join('/');
+    // .join('%2F');
 
   const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${safePath}`;
   return fetchWithAuth(url, { method: 'GET' });

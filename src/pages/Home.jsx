@@ -46,6 +46,7 @@ export default function Home() {
       return;
     }
 
+
     (async () => {
       try {
         const data = await getSyncFolder();
@@ -66,9 +67,22 @@ export default function Home() {
         }
       }
     })();
+
+    // IPC로 삭제 알림 구독
+    const onRemoved = (_e, { folderId }) => {
+      setSyncFolders(prev => prev.filter(f => f.id !== folderId));
+    };
+    ipcRenderer.on('sync-folder-removed', onRemoved);
+
+    return () => {
+      ipcRenderer.removeListener('sync-folder-removed', onRemoved);
+    };
+    
   }, [userDir, navigate]);
 
 
+
+  
   // 2) “싱크 폴더 추가” 버튼 핸들러
   const handleSelectFolder = async () => {
     const sel = await ipcRenderer.invoke('open-folder-dialog');
@@ -166,6 +180,65 @@ export default function Home() {
   const onDoubleClick = folder =>
     navigate(`/folder/${folder.id}`, { state:{ folderPath: folder.folderPath }});
   const handleInfo   = () => { alert(`Folder ID: ${ctxMenu.folderId}`); setCtxMenu(m=>({ ...m, visible:false })); };
+  // ── 폴더 재다운로드 핸들러 ──
+  const handleRedown = async () => {
+    try {
+      const folderId = ctxMenu.folderId;
+      const folder = syncFolders.find(f => f.id === folderId);
+      if (!folder) {
+        alert('폴더 정보를 찾을 수 없습니다.');
+        return;
+      }
+      const root = folder.folderPath;
+      // 로컬에 이미 존재하는 경우
+      if (fs.existsSync(root)) {
+        alert('이미 로컬에 폴더가 존재합니다.');
+        setCtxMenu(m => ({ ...m, visible: false }));
+        return;
+      }
+      // 1) 로컬에 빈 폴더 생성
+      fs.mkdirSync(root, { recursive: true });
+      // 2) 서버에서 파일 목록 조회
+      const serverFiles = await getFolderFileList(folderId);
+      // 3) 디렉터리 구조 먼저 생성
+      serverFiles
+        .filter(f => f.relativePath.endsWith('/'))
+        .forEach(f => {
+          const dirPath = path.join(root, f.relativePath);
+          fs.mkdirSync(dirPath, { recursive: true });
+        });
+
+      // 4) 파일 다운로드 (숨김 파일 건너뛰고, 실패해도 계속)
+      for (const f of serverFiles) {
+        const rel = f.relativePath;
+        if (rel.endsWith('/')) continue;      // 디렉터리는 이미 만들었고
+        if (path.basename(rel).startsWith('.')) {
+          console.warn(`🚧 숨김 파일 건너뜀: ${rel}`);
+          continue;
+        }
+
+        const dest = path.join(root, rel);
+        // const safeRel = rel.split('/').map(encodeURIComponent).join('%2F');
+        try {
+          const blob     = await downloadFolderFile(folderId, rel);
+          const arrayBuf = await blob.arrayBuffer();
+          fs.mkdirSync(path.dirname(dest), { recursive: true });
+          fs.writeFileSync(dest, Buffer.from(arrayBuf));
+        } catch (e) {
+          console.warn(`⚠️ 다운로드 실패(무시): ${rel}`, e.message);
+          // continue;  // for 문이 자동으로 다음으로
+        }
+      }
+
+      alert('폴더 재다운로드가 완료되었습니다.');
+      setCtxMenu(m => ({ ...m, visible: false }));
+
+    } catch (err) {
+      console.error('폴더 재다운로드 실패:', err);
+      alert('폴더 재다운로드 중 오류가 발생했습니다.');
+      setCtxMenu(m => ({ ...m, visible: false }));
+    }
+  };
   const handleDelete = async () => {
     if (!confirm('삭제하시겠습니까?')) return setCtxMenu(m=>({ ...m, visible:false }));
     await deleteSyncFolder(ctxMenu.folderId);
@@ -232,7 +305,9 @@ export default function Home() {
       <FolderContextMenu
         visible={ctxMenu.visible}
         x={ctxMenu.x} y={ctxMenu.y}
-        onInfo={handleInfo} onDelete={handleDelete}
+        onInfo={handleInfo}
+        onRedown={handleRedown}
+        onDelete={handleDelete}
       />
     </div>
   );
