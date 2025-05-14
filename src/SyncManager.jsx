@@ -481,7 +481,7 @@ const handleLocalChange = async (filePath, id, root) => {
                 console.log(`🚫 [SyncManager] 서브폴더 내 파일 제외됨: ${rel}`);
               }              
               
-              // // 2) 파일이면 다운로드
+              // // 2) 파일이면 다운로드(현재 서브폴더 내 파일이 다운로드가 되지 않는 상황이여서 주석함.)
               // try {
               //   const blob = await downloadFolderFile(id, rel);
               //   const buf = await blob.arrayBuffer();
@@ -495,9 +495,83 @@ const handleLocalChange = async (filePath, id, root) => {
               //     console.error(`📁 [SyncManager] 다운로드 실패: ${rel}`, e);
               //   }
               // }
+
+
             }
             initialSyncDoneRef.current[id] = true;
             return;
+          }
+
+          // 3) 이제 “증분 동기화” 단계: 로컬 ↔ 서버 메타 비교
+
+          // 3-1) 로컬 전체 메타 수집
+          const localList = buildClientFiles(root);
+          const localMap  = new Map(localList.map(f => [f.relativePath, f]));
+
+          // 3-2) 서버 전체 메타 수집
+          const serverList = await getFolderFileList(id);
+          const serverMap  = new Map(serverList.map(f => [f.relativePath, f]));
+
+          // 3-3) ▷ 로컬에만 있는 파일 → 서버로 업로드
+          for (const [rel, _localMeta] of localMap.entries()) {
+            // skip 숨김파일/폴더, 그리고 디렉터리
+            if (rel.startsWith('.') || rel.endsWith('/')) continue;
+            if (!serverMap.has(rel)) {
+              console.warn(`☁️ 로컬 전용 파일 → 업로드: ${rel}`);
+              await uploadFile(id, path.join(root, rel), rel);
+              ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
+            }
+          }
+
+          // 3-4) ▷ 서버에만 있는 파일 → 로컬로 다운로드 (서브폴더 내 파일 제외)
+          for (const [rel, _serverMeta] of serverMap.entries()) {
+            // skip 폴더 엔트리, 숨김파일
+            if (rel.endsWith('/') || rel.startsWith('.')) continue;
+            // only download root-level files
+            if (!localMap.has(rel) && !rel.includes('/')) {
+              console.warn(`☁️ 서버 전용 파일 → 다운로드: ${rel}`);
+              const blob = await downloadFolderFile(id, rel);
+              const buf  = await blob.arrayBuffer();
+              const dest = path.join(root, rel);
+              fs.mkdirSync(path.dirname(dest), { recursive: true });
+              fs.writeFileSync(dest, Buffer.from(buf));
+              ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
+            }
+          }
+
+          // 3-5) ▷ 변경된 파일 동기화 (해시 비교)
+          for (const [rel, localMeta] of localMap.entries()) {
+            if (rel.startsWith('.') || rel.endsWith('/')) continue;
+            const serverMeta = serverMap.get(rel);
+            if (serverMeta) {
+              if (localMeta.hash !== serverMeta.hash) {
+                const clientTime = new Date(localMeta.lastModified);
+                const serverTime = new Date(serverMeta.lastModified);
+                if (clientTime > serverTime) {
+                  console.warn(`🔼 로컬이 최신 → 업로드: ${rel}`);
+                  await uploadFile(id, path.join(root, rel), rel);
+                  ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: rel });
+                } else {
+                  // 서브폴더 내 파일은 변경 반영할 수 없다...
+                  if (!rel.includes('/')) {
+                    console.warn(`🔽 서버가 최신 → 다운로드: ${rel}`);
+                    const blob = await downloadFolderFile(id, rel);
+                    const buf  = await blob.arrayBuffer();
+                    const dest = path.join(root, rel);
+                    fs.writeFileSync(dest, Buffer.from(buf));
+                    ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: rel });
+                  } else {
+                    console.log(`🚫 변경 반영 제외 (서브폴더 파일): ${rel}`);
+                  }                  
+                  // console.warn(`🔽 서버가 최신 → 다운로드: ${rel}`);
+                  // const blob = await downloadFolderFile(id, rel);
+                  // const buf  = await blob.arrayBuffer();
+                  // const dest = path.join(root, rel);
+                  // fs.writeFileSync(dest, Buffer.from(buf));
+                  // ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: rel });
+                }
+              }
+            }
           }
       
           // cleanupEmptyDirs(root);
