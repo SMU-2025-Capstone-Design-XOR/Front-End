@@ -82,8 +82,9 @@ function buildClientFiles(root) {
         console.log(`🛑 무시된 파일: ${rel}`);
         return;
       }
-      const localFiles = buildClientFiles(root);
-      const localPaths = new Set(localFiles.map(f => f.relativePath));
+      // 서브폴더 내 파일이 다운로드가 되지 않는 상황이기에 주석처리함.(빈 화면 방지)
+      // const localFiles = buildClientFiles(root);
+      // const localPaths = new Set(localFiles.map(f => f.relativePath));
       console.log(`📂 [handleLocalAdd] 파일 추가됨: ${rel}`);
   
       const stat = fs.statSync(fullPath);
@@ -100,6 +101,7 @@ function buildClientFiles(root) {
       const serverFiles = await getFolderFileList(id);
       const serverMap = new Map(serverFiles.map(f => [f.relativePath, f]));
       const serverMeta = serverMap.get(rel);
+
   
       if (serverMeta) {
         if (newFileMeta.hash !== serverMeta.hash) {
@@ -128,31 +130,31 @@ function buildClientFiles(root) {
       const clientMap = prevClientMapRef.current[id] || new Map();
       clientMap.set(rel, newFileMeta);
 
-      for (const [serverRel, serverMetaItem] of serverMap.entries()) {
-        if (serverRel.endsWith('/')) continue; // ← 🛠 폴더 엔트리는 무시
+      // for (const [serverRel, serverMetaItem] of serverMap.entries()) {
+      //   if (serverRel.endsWith('/')) continue; // ← 🛠 폴더 엔트리는 무시
 
-        if (!localPaths.has(serverRel)) {
-          console.warn(`☁️ 서버에만 있음 → 로컬로 다운로드: ${serverRel}`);
-          const blob = await downloadFolderFile(id, serverRel);
-          const arrayBuf = await blob.arrayBuffer();
-          const dest = path.join(root, serverRel);
-          fs.mkdirSync(path.dirname(dest), { recursive: true });
-          fs.writeFileSync(dest, Buffer.from(arrayBuf));
-          ipcRenderer.send('sync-file-added', { folderId: id, relativePath: serverRel });
+      //   if (!localPaths.has(serverRel)) {
+      //     console.warn(`☁️ 서버에만 있음 → 로컬로 다운로드: ${serverRel}`);
+      //     const blob = await downloadFolderFile(id, serverRel);
+      //     const arrayBuf = await blob.arrayBuffer();
+      //     const dest = path.join(root, serverRel);
+      //     fs.mkdirSync(path.dirname(dest), { recursive: true });
+      //     fs.writeFileSync(dest, Buffer.from(arrayBuf));
+      //     ipcRenderer.send('sync-file-added', { folderId: id, relativePath: serverRel });
   
-          const stat = fs.statSync(dest);
-          const buf = fs.readFileSync(dest);
-          const downloadedMeta = {
-            originalName: path.basename(dest),
-            relativePath: serverRel,
-            size: stat.size,
-            hash: crypto.createHash('sha256').update(buf).digest('hex'),
-            mimeType: mime.lookup(dest) || 'application/octet-stream',
-            lastModified: new Date(stat.mtimeMs).toISOString()
-          };
-          clientMap.set(serverRel, downloadedMeta);
-        }
-      }
+      //     const stat = fs.statSync(dest);
+      //     const buf = fs.readFileSync(dest);
+      //     const downloadedMeta = {
+      //       originalName: path.basename(dest),
+      //       relativePath: serverRel,
+      //       size: stat.size,
+      //       hash: crypto.createHash('sha256').update(buf).digest('hex'),
+      //       mimeType: mime.lookup(dest) || 'application/octet-stream',
+      //       lastModified: new Date(stat.mtimeMs).toISOString()
+      //     };
+      //     clientMap.set(serverRel, downloadedMeta);
+      //   }
+      // }
 
       prevClientMapRef.current[id] = clientMap;
   
@@ -422,69 +424,92 @@ const handleLocalChange = async (filePath, id, root) => {
       const { id, folderPath: root } = folder;
       prevClientMapRef.current[id] = new Map();
       initialSyncDoneRef.current[id] = false;
+      if (!id || !root) {
+        console.warn('[SyncManager] 잘못된 폴더 데이터 무시:', folder);
+        return;
+      }      
 
-      // const doSync = async () => {
-      //   try {
-      //     // 서버에서 폴더가 삭제되었는지 체크
-      //     try {
-      //       await getSyncFolder();
-      //     } catch (e) {
-      //       if (e.message.startsWith('HTTP 404')) {
-      //         console.warn(`✂️ [SyncManager] 서버에서 폴더(${id}) 삭제됨 → 로컬에서도 제거`);
-      //         watchersRef.current[id]?.close();
-      //         clearInterval(intervalsRef.current[id]);
-      //         fs.rmSync(root, { recursive: true, force: true });
-      //         setFolders(prev => prev.filter(f => f.id !== id));
-      //         return;
-      //       }
-      //       throw e;
-      //     }       
+      const doSync = async () => {
+        try {
+          // 서버에서 폴더가 삭제되었는지 체크
+          try {
+            await getSyncFolder();
+          } catch (e) {
+            if (e.message.startsWith('HTTP 404')) {
+              console.warn(`✂️ [SyncManager] 서버에서 폴더(${id}) 삭제됨 → 로컬에서도 제거`);
+              watchersRef.current[id]?.close();
+              clearInterval(intervalsRef.current[id]);
+              fs.rmSync(root, { recursive: true, force: true });
+              setFolders(prev => prev.filter(f => f.id !== id));
+              return;
+            }
+            throw e;
+          }       
       
-      //     // 로컬 폴더가 존재하지 않는 경우 전체 재다운로드
-      //     if (!fs.existsSync(root)) {
-      //       console.warn(`📁 [SyncManager] 로컬 폴더가 사라졌습니다. 재생성 후 전체 다운로드 → ${root}`);
-      //       fs.mkdirSync(root, { recursive: true });
-      //       const serverList = await getFolderFileList(id);
-      //       for (const f of serverList) {
-      //         const rel = f.relativePath || f.originalName;
-      //         const dest = path.join(root, rel);
-      //         // 1) 디렉터리면 폴더 생성만
-      //         if (rel.endsWith('/')) {
-      //           if (!fs.existsSync(dest)) {
-      //             fs.mkdirSync(dest, { recursive: true });
-      //             ipcRenderer.send('sync-folder-added', { folderId: id, relativePath: rel });
-      //           }
-      //           continue;
-      //         }
-      //         // 2) 파일이면 다운로드
-      //         try {
-      //           const blob = await downloadFolderFile(id, rel);
-      //           const buf = await blob.arrayBuffer();
-      //           fs.mkdirSync(path.dirname(dest), { recursive: true });
-      //           fs.writeFileSync(dest, Buffer.from(buf));
-      //           ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
-      //         } catch (e) {
-      //           if (e.message.startsWith('HTTP 404')) {
-      //             console.warn(`📁 [SyncManager] 다운로드 실패 (404): ${rel}`);
-      //           } else {
-      //             console.error(`📁 [SyncManager] 다운로드 실패: ${rel}`, e);
-      //           }
-      //         }
-      //       }
-      //       initialSyncDoneRef.current[id] = true;
-      //       return;
-      //     }
+          // 로컬 폴더가 존재하지 않는 경우 전체 재다운로드
+          if (!fs.existsSync(root)) {
+            console.warn(`📁 [SyncManager] 로컬 폴더가 사라졌습니다. 재생성 후 전체 다운로드 → ${root}`);
+            fs.mkdirSync(root, { recursive: true });
+            const serverList = await getFolderFileList(id);
+            for (const f of serverList) {
+              const rel = f.relativePath || f.originalName;
+              const dest = path.join(root, rel);
+              // 1) 디렉터리면 폴더 생성만
+              if (rel.endsWith('/')) {
+                if (!fs.existsSync(dest)) {
+                  fs.mkdirSync(dest, { recursive: true });
+                  ipcRenderer.send('sub-folder-added', { folderId: id, relativePath: rel });
+                }
+                continue;
+              }
+              // 2) 루트에 있는 파일만 다운로드 (서브폴더 내 파일 제외)
+              if (!rel.includes('/')) {
+                try {
+                  const blob = await downloadFolderFile(id, rel);
+                  const buf = await blob.arrayBuffer();
+                  fs.mkdirSync(path.dirname(dest), { recursive: true });
+                  fs.writeFileSync(dest, Buffer.from(buf));
+                  ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
+                } catch (e) {
+                  if (e.message.startsWith('HTTP 404')) {
+                    console.warn(`📁 [SyncManager] 다운로드 실패 (404): ${rel}`);
+                  } else {
+                    console.error(`📁 [SyncManager] 다운로드 실패: ${rel}`, e);
+                  }
+                }
+              } else {
+                console.log(`🚫 [SyncManager] 서브폴더 내 파일 제외됨: ${rel}`);
+              }              
+              
+              // // 2) 파일이면 다운로드
+              // try {
+              //   const blob = await downloadFolderFile(id, rel);
+              //   const buf = await blob.arrayBuffer();
+              //   fs.mkdirSync(path.dirname(dest), { recursive: true });
+              //   fs.writeFileSync(dest, Buffer.from(buf));
+              //   ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
+              // } catch (e) {
+              //   if (e.message.startsWith('HTTP 404')) {
+              //     console.warn(`📁 [SyncManager] 다운로드 실패 (404): ${rel}`);
+              //   } else {
+              //     console.error(`📁 [SyncManager] 다운로드 실패: ${rel}`, e);
+              //   }
+              // }
+            }
+            initialSyncDoneRef.current[id] = true;
+            return;
+          }
       
-      //     cleanupEmptyDirs(root);
-      //     initialSyncDoneRef.current[id] = true;
-      //     prevClientMapRef.current[id] = localMap;
+          // cleanupEmptyDirs(root);
+          initialSyncDoneRef.current[id] = true;
+          // prevClientMapRef.current[id] = localMap;
       
-      //   } catch (e) {
-      //     console.error('📁 [SyncManager] 동기화 중 에러 발생:', e);
-      //   }
-      // };      
+        } catch (e) {
+          console.error('📁 [SyncManager] 동기화 중 에러 발생:', e);
+        }
+      };      
 
-      // doSync();
+      doSync();
 
       // File system watcher
       const watcher = chokidar.watch(root, {
@@ -505,7 +530,7 @@ const handleLocalChange = async (filePath, id, root) => {
         if (rel === '') {
           // root 삭제
           watcher.close();
-          handleLocalRootDelete(id);
+          // handleLocalRootDelete(id);
         } else {
           handleLocalSubDelete(p, id, root);
         }

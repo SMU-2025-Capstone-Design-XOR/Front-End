@@ -180,7 +180,7 @@ export default function Home() {
   const onDoubleClick = folder =>
     navigate(`/folder/${folder.id}`, { state:{ folderPath: folder.folderPath }});
   const handleInfo   = () => { alert(`Folder ID: ${ctxMenu.folderId}`); setCtxMenu(m=>({ ...m, visible:false })); };
-  // ── 폴더 재다운로드 핸들러 ──
+
   const handleRedown = async () => {
     try {
       const folderId = ctxMenu.folderId;
@@ -192,98 +192,52 @@ export default function Home() {
   
       const targetDir = folder.folderPath;
   
-      if (!fs.existsSync(targetDir)) {
-        // 로컬 폴더가 없는 경우 새로 생성
-        fs.mkdirSync(targetDir, { recursive: true });
+      if (fs.existsSync(targetDir)) {
+        alert('이미 로컬에 폴더가 존재합니다.');
+        setCtxMenu(m => ({ ...m, visible: false }));
+        return;
       }
   
-      // 1) 로컬 파일 메타데이터 수집
-      const walkClientFiles = (root) => {
-        const results = [];
-  
-        const walk = (currentDir) => {
-          const entries = fs.readdirSync(currentDir, { withFileTypes: true });
-          for (const entry of entries) {
-            const fullPath = path.join(currentDir, entry.name);
-            const stat = fs.statSync(fullPath);
-  
-            if (entry.isFile() && entry.name !== '.DS_Store') {
-              const buffer = fs.readFileSync(fullPath);
-              const relativePath = path.relative(root, fullPath).replace(/\\/g, '/'); // 윈도우 호환
-              const mimeType = mime.lookup(fullPath) || 'application/octet-stream';
-              const hash = crypto.createHash('sha256').update(buffer).digest('hex');
-  
-              results.push({
-                originalName: relativePath,
-                relativePath: relativePath,
-                size: stat.size,
-                hash: hash,
-                mimeType: mimeType,
-                lastModified: new Date(stat.mtimeMs).toISOString(),
-              });
-            } else if (entry.isDirectory()) {
-              walk(fullPath); // 하위 폴더 재귀 탐색
-            }
-          }
-        };
-  
-        walk(root);
-        return results;
-      };
-  
-      const clientFiles = walkClientFiles(targetDir);
+      // 1) 로컬 폴더 생성
+      fs.mkdirSync(targetDir, { recursive: true });
   
       try {
-        // 2) 서버와 동기화 (차이점 계산)
-        const { filesToDownload = [] } = await syncFolder(folderId, clientFiles, []);
-        const filteredFilesToDownload = filesToDownload.filter(name => !name.includes('.DS_Store'));
-
-        console.log('필터 전 다운로드할 파일 목록:', filesToDownload);
-        console.log('필터 후 다운로드할 파일 목록:', filteredFilesToDownload);
+        // 2) 서버에서 파일 목록 조회
+        const serverFiles = await getFolderFileList(folderId);
   
-        // if (filesToDownload.length === 0) {
-        //   alert('동기화할 파일이 없습니다.');
-        //   setCtxMenu(m => ({ ...m, visible: false }));
-        //   return;
-        // }
-        if (filteredFilesToDownload.length === 0) {
-          alert('동기화할 파일이 없습니다.');
-          setCtxMenu(m => ({ ...m, visible: false }));
-          return;
-        }
+        // 3) 서버에서 폴더 구조 먼저 생성
+        serverFiles
+          .filter(f => f.relativePath.endsWith('/'))
+          .forEach(f => {
+            const dirPath = path.join(targetDir, f.relativePath);
+            fs.mkdirSync(dirPath, { recursive: true });
+          });
   
-        // 3) 파일 다운로드
-        for (const name of filteredFilesToDownload) {
-          const destPath = path.join(targetDir, name);
+        // 4) 파일 다운로드
+        for (const file of serverFiles) {
+          const rel = file.relativePath;
+  
+          // 디렉터리는 이미 생성되었으므로, 파일만 처리
+          if (rel.endsWith('/')) continue;
+  
+          const destPath = path.join(targetDir, rel);
   
           try {
-            const blob = await downloadFolderFile(folderId, name);
+            const blob = await downloadFolderFile(folderId, rel);
             const buf = await blob.arrayBuffer();
             fs.mkdirSync(path.dirname(destPath), { recursive: true });
             fs.writeFileSync(destPath, Buffer.from(buf));
           } catch (e) {
-            console.warn(`⚠️ 파일 다운로드 실패(무시): ${name}`, e.message);
+            console.warn(`⚠️ 파일 다운로드 실패(무시): ${rel}`, e.message);
           }
-        }        
-        // for (const name of filesToDownload) {
-        //   const destPath = path.join(targetDir, name);
-  
-        //   try {
-        //     const blob = await downloadFolderFile(folderId, name);
-        //     const buf = await blob.arrayBuffer();
-        //     fs.mkdirSync(path.dirname(destPath), { recursive: true });
-        //     fs.writeFileSync(destPath, Buffer.from(buf));
-        //   } catch (e) {
-        //     console.warn(`⚠️ 파일 다운로드 실패(무시): ${name}`, e.message);
-        //   }
-        // }
+        }
   
         alert('폴더 재다운로드가 완료되었습니다.');
         setCtxMenu(m => ({ ...m, visible: false }));
   
       } catch (err) {
-        console.error('파일 목록 동기화 실패:', err);
-        alert('서버와 동기화하는 중 오류가 발생했습니다.');
+        console.error('파일 목록 불러오기 실패:', err);
+        alert('서버에서 파일 목록을 불러오는 데 실패했습니다.');
         setCtxMenu(m => ({ ...m, visible: false }));
       }
   
@@ -293,74 +247,6 @@ export default function Home() {
       setCtxMenu(m => ({ ...m, visible: false }));
     }
   };
-  
-
-  // const handleRedown = async () => {
-  //   try {
-  //     const folderId = ctxMenu.folderId;
-  //     const folder = syncFolders.find(f => f.id === folderId);
-  //     if (!folder) {
-  //       alert('폴더 정보를 찾을 수 없습니다.');
-  //       return;
-  //     }
-  
-  //     const targetDir = folder.folderPath;
-  
-  //     if (fs.existsSync(targetDir)) {
-  //       alert('이미 로컬에 폴더가 존재합니다.');
-  //       setCtxMenu(m => ({ ...m, visible: false }));
-  //       return;
-  //     }
-  
-  //     // 1) 로컬 폴더 생성
-  //     fs.mkdirSync(targetDir, { recursive: true });
-  
-  //     try {
-  //       // 2) 서버에서 파일 목록 조회
-  //       const serverFiles = await getFolderFileList(folderId);
-  
-  //       // 3) 서버에서 폴더 구조 먼저 생성
-  //       serverFiles
-  //         .filter(f => f.relativePath.endsWith('/'))
-  //         .forEach(f => {
-  //           const dirPath = path.join(targetDir, f.relativePath);
-  //           fs.mkdirSync(dirPath, { recursive: true });
-  //         });
-  
-  //       // 4) 파일 다운로드
-  //       for (const file of serverFiles) {
-  //         const rel = file.relativePath;
-  
-  //         // 디렉터리는 이미 생성되었으므로, 파일만 처리
-  //         if (rel.endsWith('/')) continue;
-  
-  //         const destPath = path.join(targetDir, rel);
-  
-  //         try {
-  //           const blob = await downloadFolderFile(folderId, rel);
-  //           const buf = await blob.arrayBuffer();
-  //           fs.mkdirSync(path.dirname(destPath), { recursive: true });
-  //           fs.writeFileSync(destPath, Buffer.from(buf));
-  //         } catch (e) {
-  //           console.warn(`⚠️ 파일 다운로드 실패(무시): ${rel}`, e.message);
-  //         }
-  //       }
-  
-  //       alert('폴더 재다운로드가 완료되었습니다.');
-  //       setCtxMenu(m => ({ ...m, visible: false }));
-  
-  //     } catch (err) {
-  //       console.error('파일 목록 불러오기 실패:', err);
-  //       alert('서버에서 파일 목록을 불러오는 데 실패했습니다.');
-  //       setCtxMenu(m => ({ ...m, visible: false }));
-  //     }
-  
-  //   } catch (err) {
-  //     console.error('폴더 재다운로드 실패:', err);
-  //     alert('폴더 재다운로드 중 오류가 발생했습니다.');
-  //     setCtxMenu(m => ({ ...m, visible: false }));
-  //   }
-  // };
   
   const handleDelete = async () => {
     if (!confirm('삭제하시겠습니까?')) return setCtxMenu(m=>({ ...m, visible:false }));

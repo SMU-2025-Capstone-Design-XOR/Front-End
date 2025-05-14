@@ -103,27 +103,27 @@ export default function FolderPage() {
         // console.log('[DEBUG] fileName:', rel, '→ remainder:', remainder, '→ segments:', segments);
       });
 
-      // 🔽 여기에 로컬 빈 폴더 추가
-      try {
-        const clientMap = window.electronAPI.getClientMap(id); // preload 함수 필요
-        if (clientMap) {
-          for (const rel in clientMap) {
-            const entry = clientMap[rel];
-            if (entry.type !== 'directory') continue;
-            const normalizedRel = rel.replace(/^\/+/, '').replace(/\/+$/, '');
-            const prefix = subPath ? subPath + '/' : '';
-            if (!normalizedRel.startsWith(prefix)) continue;
-            const remainder = normalizedRel.slice(prefix.length);
-            if (!remainder || remainder.includes('//')) continue;
-            const segments = remainder.split('/');
-            if (segments.length === 1) {
-              dirSet.add(segments[0]);
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('🔶 로컬 빈 폴더 처리 중 오류:', e);
-      }
+      // // 🔽 여기에 로컬 빈 폴더 추가
+      // try {
+      //   const clientMap = window.electronAPI.getClientMap(id); // preload 함수 필요
+      //   if (clientMap) {
+      //     for (const rel in clientMap) {
+      //       const entry = clientMap[rel];
+      //       if (entry.type !== 'directory') continue;
+      //       const normalizedRel = rel.replace(/^\/+/, '').replace(/\/+$/, '');
+      //       const prefix = subPath ? subPath + '/' : '';
+      //       if (!normalizedRel.startsWith(prefix)) continue;
+      //       const remainder = normalizedRel.slice(prefix.length);
+      //       if (!remainder || remainder.includes('//')) continue;
+      //       const segments = remainder.split('/');
+      //       if (segments.length === 1) {
+      //         dirSet.add(segments[0]);
+      //       }
+      //     }
+      //   }
+      // } catch (e) {
+      //   console.warn('🔶 로컬 빈 폴더 처리 중 오류:', e);
+      // }
 
       
       const dirItems = Array.from(dirSet).map(name => ({
@@ -273,6 +273,7 @@ export default function FolderPage() {
   const handleDownload = async (relativePath) => {
     try {
       // 항상 파일의 상대경로 문자열을 서버에 전달
+      console.log('경로', relativePath);
       const blob = await downloadFolderFile(id, relativePath);
       const buf  = await blob.arrayBuffer();
       // 3) 저장 다이얼로그
@@ -281,12 +282,14 @@ export default function FolderPage() {
         defaultPath: savePath
       });
       if (!filePath) return;
+      const dir = path.dirname(filePath);
+      // const dir = path.dirname(savePath);
 
       // 하위 폴더가 있다면 디렉토리 생성
-      const dir = path.dirname(filePath);
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
       fs.writeFileSync(filePath, Buffer.from(buf));
+      // fs.writeFileSync(savePath, Buffer.from(buf));
       alert('다운로드 완료!');
     } catch (err) {
       console.error(err);
@@ -424,6 +427,7 @@ const handlefoldDelete = async () => {
   const showFileMenu = (e, { fileId, fileName, name }) => {
     e.preventDefault();
     const menu = new Menu();
+    console.log('이벤트 받은 경로?', fileName);
     menu.append(new MenuItem({ label: '파일 공유',   click: () => alert(`’${name}‘ 공유…`) }));
     menu.append(new MenuItem({ label: '버전 관리',   click: () => alert(`’${name}‘ 버전 관리…`) }));
     menu.append(new MenuItem({ label: '정보 가져오기', click: () => handleInfo(fileName) }));

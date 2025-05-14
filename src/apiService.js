@@ -29,11 +29,14 @@ const getUserIdFromToken = () => {
  */
 const fetchWithAuth = async (url, options = {}) => {
   const token = localStorage.getItem('token');
+  // console.log(token);
+  // console.log(url);
   const headers = {
     ...(options.headers || {}),
     'Authorization': `Bearer ${token}`,
   };
   const res = await fetch(url, { ...options, headers });
+  // console.log(res);
   if (!res.ok) {
     const text = await res.text();
     console.error(`API Error ${res.status} response:`, text);
@@ -125,9 +128,10 @@ export const downloadFolderFile = async (syncFolderId, relativePath) => {
     .split('/')
     .map(encodeURIComponent)
     .join('/');
-    // .join('%2F');
 
+  // console.log(safePath);
   const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${safePath}`;
+  // console.log(url);
   return fetchWithAuth(url, { method: 'GET' });
 };
 
