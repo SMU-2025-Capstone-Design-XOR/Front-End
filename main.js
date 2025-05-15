@@ -91,6 +91,7 @@ app.whenReady().then(() => {
   ipcMain.on('sync-file-deleted',  (e, d) => broadcast('sync-file-deleted',  d));
   ipcMain.on('sync-file-updated',  (e, d) => broadcast('sync-file-updated',  d));
   ipcMain.on('sync-folder-added',   (e, d) => broadcast('sync-folder-added',   d));
+  ipcMain.on('local-folder-added',   (e, d) => broadcast('local-folder-added',   d));
   ipcMain.on('sync-folder-removed', (e, d) => broadcast('sync-folder-removed', d));
   ipcMain.on('sub-folder-added',   (e, d) => broadcast('sub-folder-added',   d));
   ipcMain.on('sub-folder-removed', (e, d) => broadcast('sub-folder-removed', d));

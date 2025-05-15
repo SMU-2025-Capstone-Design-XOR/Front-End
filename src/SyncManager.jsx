@@ -12,6 +12,7 @@ const path = window.require('path');
 // 로그인 시 localStorage에 저장된 계정 폴더 경로
 const userDir = localStorage.getItem('userDir');
 
+
 import {
   sendSyncFolder,
   getSyncFolder,
@@ -32,34 +33,72 @@ export default function SyncManager() {
   const navigate              = useNavigate();
   const folderPathMap = useRef({});
 
+  const justAdded = useRef(new Set());
 
-// ── 전체 파일 메타 스캔 ──
-function buildClientFiles(root) {
-  const results = [];
-  function walk(currentDir) {
-    fs.readdirSync(currentDir, { withFileTypes: true }).forEach(entry => {
-      const fullPath = path.join(currentDir, entry.name);
-      const stat = fs.statSync(fullPath);
-      if (entry.isFile()) {
-        const buffer = fs.readFileSync(fullPath);
-        const relativePath = path.relative(root, fullPath).replace(/\\/g, '/');
-        results.push({
-          originalName: relativePath,
-          // relativePath: relativePath,
-          relativePath,
-          size: stat.size,
-          hash: crypto.createHash('sha256').update(buffer).digest('hex'),
-          mimeType: mime.lookup(fullPath) || 'application/octet-stream',
-          lastModified: new Date(stat.mtimeMs).toISOString(),
-        });
-      } else if (entry.isDirectory()) {
-        walk(fullPath);
+  // 1) IPC로 “local-folder-added” 받기
+  useEffect(() => {
+    const onLocalAdded = (_e, absPath) => {
+      justAdded.current.add(absPath);
+    };
+    ipcRenderer.on('local-folder-added', onLocalAdded);
+    return () => {
+      ipcRenderer.removeListener('local-folder-added', onLocalAdded);
+    };
+  }, []);
+
+  // 2) chokidar watcher: addDir 이벤트 무시 로직
+  useEffect(() => {
+    if (!userDir) return;
+    const watcher = chokidar.watch(userDir, {
+      ignoreInitial: true,
+      depth: 1,
+      persistent: true,
+    });
+
+    watcher.on('addDir', absPath => {
+      // Home.jsx에서 보낸 경로라면 무시
+      if (justAdded.current.has(absPath)) {
+        justAdded.current.delete(absPath);
+        return;
+      }
+      // 진짜 외부에서 추가된 폴더만 처리
+      const rel = path.relative(userDir, absPath).replace(/\\/g, '/');
+      if (rel && !rel.includes('/')) {
+        handleLocalRootAdd(absPath);
       }
     });
+
+    return () => watcher.close();
+  }, [userDir]);
+
+
+  // ── 전체 파일 메타 스캔 ──
+  function buildClientFiles(root) {
+    const results = [];
+    function walk(currentDir) {
+      fs.readdirSync(currentDir, { withFileTypes: true }).forEach(entry => {
+        const fullPath = path.join(currentDir, entry.name);
+        const stat = fs.statSync(fullPath);
+        if (entry.isFile()) {
+          const buffer = fs.readFileSync(fullPath);
+          const relativePath = path.relative(root, fullPath).replace(/\\/g, '/');
+          results.push({
+            originalName: relativePath,
+            // relativePath: relativePath,
+            relativePath,
+            size: stat.size,
+            hash: crypto.createHash('sha256').update(buffer).digest('hex'),
+            mimeType: mime.lookup(fullPath) || 'application/octet-stream',
+            lastModified: new Date(stat.mtimeMs).toISOString(),
+          });
+        } else if (entry.isDirectory()) {
+          walk(fullPath);
+        }
+      });
+    }
+    walk(root);
+    return results;
   }
-  walk(root);
-  return results;
-}
 
 
   // 파일 및 서브 폴더 관련 핸들러
@@ -326,9 +365,20 @@ const handleLocalChange = async (filePath, id, root) => {
 
   // ── 로컬에서 메인폴더 추가 동기화 ──
   async function handleLocalRootAdd(absPath) {
+    // 1) 이미 등록된 폴더면 아무것도 안 함
+    if (folders.some(f => f.folderPath === absPath)) return;
+    
     try {
       // 1) 서버에 “메인 폴더” 등록
-      const created = await sendSyncFolder(absPath);
+      // const created = await sendSyncFolder(absPath);
+      const created = await sendSyncFolder(absPath).catch(e => {
+        if (e.message.includes('Internal Server Error')) {
+          console.warn('[SyncManager] 중복 등록으로 서버 에러 무시:', absPath);
+          return null;
+        }
+        throw e;
+      });
+      if (!created) return;
       const folderId = created.id;
   
       // 2) 로컬 전체 스캔 (Home.jsx 코드 참고)
@@ -405,7 +455,11 @@ const handleLocalChange = async (filePath, id, root) => {
   useEffect(() => {
     const onSyncFolderAdd = (_e, folder) => {
       console.warn(`📁 [SyncManager] 폴더 추가 수신 → id=${folder.id}, path=${folder.folderPath}`);
-      setFolders(prev => [...prev, folder]);
+      // setFolders(prev => [...prev, folder]);
+      setFolders(prev => {
+        if (prev.some(f => f.id === folder.id)) return prev;
+        return [...prev, folder];
+      });
       folderPathMap.current[folder.id] = folder.folderPath;
     };
     const onSyncFolderRemove = (_e, { folderId, folderPath }) => {
@@ -481,30 +535,30 @@ const handleLocalChange = async (filePath, id, root) => {
   }, []);
 
 
-  // 계정 폴더 전체에 대한 watcher
-  useEffect(() => {
-    if (!userDir) return;
-    const userWatcher = chokidar.watch(userDir, {
-      ignoreInitial: true,
-      depth: 1,           // 최상위 폴더만
-      persistent: true,
-      awaitWriteFinish: {
-        stabilityThreshold: 500,
-        pollInterval: 100
-      }
-    });
+  // // 계정 폴더 전체에 대한 watcher
+  // useEffect(() => {
+  //   if (!userDir) return;
+  //   const userWatcher = chokidar.watch(userDir, {
+  //     ignoreInitial: true,
+  //     depth: 1,           // 최상위 폴더만
+  //     persistent: true,
+  //     awaitWriteFinish: {
+  //       stabilityThreshold: 500,
+  //       pollInterval: 100
+  //     }
+  //   });
 
-    userWatcher.on('addDir', absPath => {
-      // userDir 바로 아래에 추가된 새 폴더만 처리
-      const rel = path.relative(userDir, absPath).replace(/\\/g,'/');
-      if (rel && !rel.includes('/')) {
-        console.log('[계정폴더] 새 동기 대상 폴더 감지 →', rel);
-        handleLocalRootAdd(absPath);
-      }
-    });
+  //   userWatcher.on('addDir', absPath => {
+  //     // userDir 바로 아래에 추가된 새 폴더만 처리
+  //     const rel = path.relative(userDir, absPath).replace(/\\/g,'/');
+  //     if (rel && !rel.includes('/')) {
+  //       console.log('[계정폴더] 새 동기 대상 폴더 감지 →', rel);
+  //       handleLocalRootAdd(absPath);
+  //     }
+  //   });
 
-    return () => userWatcher.close();
-  }, [userDir]);
+  //   return () => userWatcher.close();
+  // }, [userDir]);
 
   // Watch folders and poll server
   useEffect(() => {
@@ -691,8 +745,7 @@ const handleLocalChange = async (filePath, id, root) => {
         awaitWriteFinish: { stabilityThreshold: 1000, pollInterval: 100 }
       });   
 
-      watcher
-      // .on('ready', () => console.log('Watcher ready'))      
+      watcher 
       .on('add', p => handleLocalAdd(p, id, root))
       .on('change', p => handleLocalChange(p, id, root))
       .on('unlink', p => handleLocalDelete(p, id, root))
@@ -702,7 +755,7 @@ const handleLocalChange = async (filePath, id, root) => {
         if (rel === '') {
           // 로컬에서 메인폴더 삭제 시 일단 파일변경 감지를 꺼야한다.
           watcher.close();
-          handleLocalRootDelete(id);
+          // handleLocalRootDelete(id);
         } else {
           handleLocalSubDelete(p, id, root);
         }

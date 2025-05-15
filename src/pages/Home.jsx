@@ -29,6 +29,7 @@ const fs = window.require('fs');
 const path = window.require('path');
 const os = window.require('os');
 
+
 export default function Home() {
   const navigate = useNavigate();
   const username = localStorage.getItem('currentUser') || 'User';
@@ -76,9 +77,18 @@ export default function Home() {
 
     // 추가 이벤트
     const onAdded = (_e, folder) => {
-      if (folder.folderPath.startsWith(userDir)) {
-        setSyncFolders(prev => [...prev, folder]);
-      }
+      // if (folder.folderPath.startsWith(userDir)) {
+      //   setSyncFolders(prev => [...prev, folder]);
+      // }
+      if (!folder.folderPath.startsWith(userDir)) return;
+      setSyncFolders(prev => {
+        // 이미 같은 ID 가 있으면 아무 동작도 안 함
+        if (prev.some(f => f.id === folder.id)) {
+          return prev;
+        }
+        return [...prev, folder];
+      });
+
     };
     ipcRenderer.on('sync-folder-added', onAdded);
 
@@ -107,6 +117,13 @@ export default function Home() {
     // 2) 선택된 폴더 이름만 추출 → XOR 루트 아래에 디렉토리 생성
     const folderName = path.basename(sel);
     const targetDir  = path.join(userDir, folderName);
+
+    // 이미 등록된 폴더는 무시
+    if (syncFolders.some(f => f.folderPath === targetDir)) {
+      console.warn('이미 등록된 폴더:', targetDir);
+      return;
+    }    
+
     if (!fs.existsSync(targetDir)) {
       fs.mkdirSync(targetDir, { recursive: true });
       // (선택) 초기 내용 복사까지 하려면 다음 같이:
@@ -168,8 +185,19 @@ export default function Home() {
       }
 
       // 6) 목록 갱신 & SyncManager에 알리기
-      const refreshed = await getSyncFolder();
-      setSyncFolders(Array.isArray(refreshed) ? refreshed : []);
+      // const refreshed = await getSyncFolder();
+      // const folders = Array.isArray(refreshed) ? refreshed : [];
+      // setSyncFolders(prev => {
+      //   // 이미 같은 ID가 있으면 무시
+      //   if (prev.some(f => f.id === created.id)) return prev;
+      //   // 아니면 전체 새 목록으로 덮어쓰기
+      //   return folders;
+      // });
+
+      // setSyncFolders(Array.isArray(refreshed) ? refreshed : []);
+      // 이 경로는 SyncManager 쪽에서 무시해야 할 “방금 추가된” 경로
+      ipcRenderer.send('local-folder-added', targetDir);
+
       ipcRenderer.send('sync-folder-added', created);
 
     } catch (err) {
