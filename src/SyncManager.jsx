@@ -4,15 +4,20 @@ import { useNavigate } from 'react-router-dom';
 import crypto from 'crypto';
 import mime from 'mime-types';
 import chokidar from 'chokidar';
+import os from 'os';
 const { ipcRenderer } = window.require('electron');
 const fs   = window.require('fs');
 const path = window.require('path');
 
+// 로그인 시 localStorage에 저장된 계정 폴더 경로
+const userDir = localStorage.getItem('userDir');
+
 import {
+  sendSyncFolder,
   getSyncFolder,
+  syncFolder,
   getFolderFileList,
   deleteSyncFolder,
-  syncFolder,
   uploadFile,
   downloadFolderFile,
   deleteFolderFile,
@@ -318,6 +323,72 @@ const handleLocalChange = async (filePath, id, root) => {
       console.error(`❌ handleServerSubDelete[${id}]`, e);
     }
   }
+
+  // ── 로컬에서 메인폴더 추가 동기화 ──
+  async function handleLocalRootAdd(absPath) {
+    try {
+      // 1) 서버에 “메인 폴더” 등록
+      const created = await sendSyncFolder(absPath);
+      const folderId = created.id;
+  
+      // 2) 로컬 전체 스캔 (Home.jsx 코드 참고)
+      const clientFiles = [];
+      function walk(currentDir) {
+        fs.readdirSync(currentDir, { withFileTypes: true }).forEach(entry => {
+          const full = path.join(currentDir, entry.name);
+          const rel  = path.relative(absPath, full).replace(/\\/g, '/');
+          if (entry.isFile()) {
+            const buf  = fs.readFileSync(full);
+            const stat = fs.statSync(full);
+            clientFiles.push({
+              originalName: rel,
+              relativePath: rel,
+              size: stat.size,
+              hash: crypto.createHash('sha256').update(buf).digest('hex'),
+              mimeType: mime.lookup(full) || 'application/octet-stream',
+              lastModified: new Date(stat.mtimeMs).toISOString(),
+            });
+          } else if (entry.isDirectory()) {
+            walk(full);
+          }
+        });
+      }
+      walk(absPath);
+  
+      // 3) 메타 동기화 요청
+      const { filesToUpload = [], filesToDownload = [] } =
+        await syncFolder(folderId, clientFiles, []);
+  
+      // 4) 서버에 업로드
+      for (const rel of filesToUpload) {
+        await uploadFile(folderId, path.join(absPath, rel), rel);
+        ipcRenderer.send('sync-file-added', { folderId, relativePath: rel });
+      }
+  
+      // 5) 서버에서 다운로드 (서브폴더 내 파일 제외)
+      for (const rel of filesToDownload) {
+        if (!rel.includes('/')) {
+          const blob = await downloadFolderFile(folderId, rel);
+          const buf  = await blob.arrayBuffer();
+          const dest = path.join(absPath, rel);
+          fs.mkdirSync(path.dirname(dest), { recursive: true });
+          fs.writeFileSync(dest, Buffer.from(buf));
+          ipcRenderer.send('sync-file-added', { folderId, relativePath: rel });
+        }
+      }
+  
+      // 6) 로컬 상태 업데이트
+      setFolders(prev => [...prev, created]);
+      folderPathMap.current[folderId] = absPath;
+
+      // 7) IPC로 홈 화면(및 나머지 컴포넌트)에 “폴더 추가” 알리기
+      ipcRenderer.send('sync-folder-added', created);      
+  
+    } catch (e) {
+      console.error('handleLocalRootAdd 에러:', e);
+    }
+  }
+
   // ── 로컬에서 메인폴더 삭제 동기화 ──
   async function handleLocalRootDelete(id) {
     // 1) 서버에 '동기화 폴더' 삭제 API 호출
@@ -408,6 +479,32 @@ const handleLocalChange = async (filePath, id, root) => {
       }
     })();
   }, []);
+
+
+  // 계정 폴더 전체에 대한 watcher
+  useEffect(() => {
+    if (!userDir) return;
+    const userWatcher = chokidar.watch(userDir, {
+      ignoreInitial: true,
+      depth: 1,           // 최상위 폴더만
+      persistent: true,
+      awaitWriteFinish: {
+        stabilityThreshold: 500,
+        pollInterval: 100
+      }
+    });
+
+    userWatcher.on('addDir', absPath => {
+      // userDir 바로 아래에 추가된 새 폴더만 처리
+      const rel = path.relative(userDir, absPath).replace(/\\/g,'/');
+      if (rel && !rel.includes('/')) {
+        console.log('[계정폴더] 새 동기 대상 폴더 감지 →', rel);
+        handleLocalRootAdd(absPath);
+      }
+    });
+
+    return () => userWatcher.close();
+  }, [userDir]);
 
   // Watch folders and poll server
   useEffect(() => {
@@ -552,7 +649,7 @@ const handleLocalChange = async (filePath, id, root) => {
                   await uploadFile(id, path.join(root, rel), rel);
                   ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: rel });
                 } else {
-                  // 서브폴더 내 파일은 변경 반영할 수 없다...
+                  // 서브폴더 내 파일은 변경 반영할 수 없다... 특히 다운로드.
                   if (!rel.includes('/')) {
                     console.warn(`🔽 서버가 최신 → 다운로드: ${rel}`);
                     const blob = await downloadFolderFile(id, rel);
@@ -591,10 +688,11 @@ const handleLocalChange = async (filePath, id, root) => {
         ignoreInitial: true,
         persistent: true,
         depth: Infinity,
-        awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 100 }
-      });
+        awaitWriteFinish: { stabilityThreshold: 1000, pollInterval: 100 }
+      });   
 
       watcher
+      // .on('ready', () => console.log('Watcher ready'))      
       .on('add', p => handleLocalAdd(p, id, root))
       .on('change', p => handleLocalChange(p, id, root))
       .on('unlink', p => handleLocalDelete(p, id, root))
@@ -602,9 +700,9 @@ const handleLocalChange = async (filePath, id, root) => {
       .on('unlinkDir', p => {
         const rel = path.relative(root, p).replace(/\\/g, '/');
         if (rel === '') {
-          // root 삭제
+          // 로컬에서 메인폴더 삭제 시 일단 파일변경 감지를 꺼야한다.
           watcher.close();
-          // handleLocalRootDelete(id);
+          handleLocalRootDelete(id);
         } else {
           handleLocalSubDelete(p, id, root);
         }

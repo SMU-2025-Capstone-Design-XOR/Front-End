@@ -74,13 +74,21 @@ export default function Home() {
     };
     ipcRenderer.on('sync-folder-removed', onRemoved);
 
+    // 추가 이벤트
+    const onAdded = (_e, folder) => {
+      if (folder.folderPath.startsWith(userDir)) {
+        setSyncFolders(prev => [...prev, folder]);
+      }
+    };
+    ipcRenderer.on('sync-folder-added', onAdded);
+
+
     return () => {
       ipcRenderer.removeListener('sync-folder-removed', onRemoved);
+      ipcRenderer.removeListener('sync-folder-added', onAdded);
     };
     
   }, [userDir, navigate]);
-
-
 
   
   // 2) “싱크 폴더 추가” 버튼 핸들러
