@@ -125,6 +125,7 @@ export default function Home() {
     }    
 
     if (!fs.existsSync(targetDir)) {
+      ipcRenderer.send('local-folder-added', targetDir);
       fs.mkdirSync(targetDir, { recursive: true });
       // (선택) 초기 내용 복사까지 하려면 다음 같이:
       copyRecursive(sel, targetDir);
@@ -196,7 +197,7 @@ export default function Home() {
 
       // setSyncFolders(Array.isArray(refreshed) ? refreshed : []);
       // 이 경로는 SyncManager 쪽에서 무시해야 할 “방금 추가된” 경로
-      ipcRenderer.send('local-folder-added', targetDir);
+
 
       ipcRenderer.send('sync-folder-added', created);
 
@@ -241,9 +242,9 @@ export default function Home() {
         // 2) 서버에서 파일 목록 조회
         const serverFiles = await getFolderFileList(folderId);
   
-        // 3) 서버에서 폴더 구조 먼저 생성
+        // 3) 서버에서 최상위 폴더 구조만 생성 (서브폴더는 생성하지 않음)
         serverFiles
-          .filter(f => f.relativePath.endsWith('/'))
+          .filter(f => f.relativePath.endsWith('/') && !f.relativePath.includes('/'))
           .forEach(f => {
             const dirPath = path.join(targetDir, f.relativePath);
             fs.mkdirSync(dirPath, { recursive: true });
@@ -253,8 +254,11 @@ export default function Home() {
         for (const file of serverFiles) {
           const rel = file.relativePath;
   
-          // 디렉터리는 이미 생성되었으므로, 파일만 처리
-          if (rel.endsWith('/')) continue;
+          // // 디렉터리는 이미 생성되었으므로, 파일만 처리
+          // if (rel.endsWith('/')) continue;
+
+          // 서브폴더 내 파일은 무시
+          if (rel.includes('/') && !rel.endsWith('/')) continue;          
   
           const destPath = path.join(targetDir, rel);
   

@@ -35,42 +35,6 @@ export default function SyncManager() {
 
   const justAdded = useRef(new Set());
 
-  // 1) IPC로 “local-folder-added” 받기
-  useEffect(() => {
-    const onLocalAdded = (_e, absPath) => {
-      justAdded.current.add(absPath);
-    };
-    ipcRenderer.on('local-folder-added', onLocalAdded);
-    return () => {
-      ipcRenderer.removeListener('local-folder-added', onLocalAdded);
-    };
-  }, []);
-
-  // 2) chokidar watcher: addDir 이벤트 무시 로직
-  useEffect(() => {
-    if (!userDir) return;
-    const watcher = chokidar.watch(userDir, {
-      ignoreInitial: true,
-      depth: 1,
-      persistent: true,
-    });
-
-    watcher.on('addDir', absPath => {
-      // Home.jsx에서 보낸 경로라면 무시
-      if (justAdded.current.has(absPath)) {
-        justAdded.current.delete(absPath);
-        return;
-      }
-      // 진짜 외부에서 추가된 폴더만 처리
-      const rel = path.relative(userDir, absPath).replace(/\\/g, '/');
-      if (rel && !rel.includes('/')) {
-        handleLocalRootAdd(absPath);
-      }
-    });
-
-    return () => watcher.close();
-  }, [userDir]);
-
 
   // ── 전체 파일 메타 스캔 ──
   function buildClientFiles(root) {
@@ -451,6 +415,60 @@ const handleLocalChange = async (filePath, id, root) => {
   }
   
 
+// 1) IPC로 “local-folder-added” 받기
+useEffect(() => {
+  const onLocalAdded = (_e, absPath) => {
+    justAdded.current.add(absPath);
+  };
+  ipcRenderer.on('local-folder-added', onLocalAdded);
+  return () => {
+    ipcRenderer.removeListener('local-folder-added', onLocalAdded);
+  };
+}, []);
+
+// 2) chokidar watcher: addDir 이벤트 무시 로직
+useEffect(() => {
+  if (!userDir) return;
+  const watcher = chokidar.watch(userDir, {
+    ignoreInitial: true,
+    depth: 1,
+    persistent: true,
+  });
+
+  watcher.on('addDir', absPath => {
+    // Home.jsx에서 보낸 경로라면 무시
+    if (justAdded.current.has(absPath)) {
+      justAdded.current.delete(absPath);
+      return;
+    }
+    // 진짜 외부에서 추가된 폴더만 처리
+    const rel = path.relative(userDir, absPath).replace(/\\/g, '/');
+    if (rel && !rel.includes('/')) {
+      handleLocalRootAdd(absPath);
+    }
+  });
+
+  return () => watcher.close();
+}, [userDir]);
+
+  // ── 초기 싱크폴더 로드 ──
+  useEffect(() => {
+    (async () => {
+      try { 
+        setFolders(await getSyncFolder() || []); 
+      } 
+      catch (e) { 
+        console.error(e);
+        if (e.message.startsWith('HTTP 403')) { 
+          localStorage.removeItem('token'); 
+          alert('세션 만료, 재로그인 필요');
+          navigate('/'); 
+        } 
+      }
+    })();
+  }, []);
+
+
   // 루트경로에서 메인폴더 추가/삭제 동시 처리
   useEffect(() => {
     const onSyncFolderAdd = (_e, folder) => {
@@ -516,23 +534,6 @@ const handleLocalChange = async (filePath, id, root) => {
     };
   }, []);
 
-
-  // ── 초기 싱크폴더 로드 ──
-  useEffect(() => {
-    (async () => {
-      try { 
-        setFolders(await getSyncFolder() || []); 
-      } 
-      catch (e) { 
-        console.error(e);
-        if (e.message.startsWith('HTTP 403')) { 
-          localStorage.removeItem('token'); 
-          alert('세션 만료, 재로그인 필요');
-          navigate('/'); 
-        } 
-      }
-    })();
-  }, []);
 
 
   // // 계정 폴더 전체에 대한 watcher
