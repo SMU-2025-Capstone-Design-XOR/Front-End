@@ -1,11 +1,12 @@
 // // src/App.jsx
 // // use React Router
 import React from 'react';
- import { HashRouter as Router, Routes, Route } from 'react-router-dom';
- import Login from './pages/Login';
- import Register from './pages/Register';
- import Home from './pages/Home';
- import FolderPage from './pages/FolderPage';
+import { HashRouter as Router, Routes, Route } from 'react-router-dom';
+import Login from './pages/Login';
+import Register from './pages/Register';
+import Home from './pages/Home';
+import FolderPage from './pages/FolderPage';
+import VersionManager from './pages/VersionManager';
 import SyncManager from './SyncManager';
 
  const App = () => {
@@ -28,6 +29,7 @@ import SyncManager from './SyncManager';
               <FolderPage />
             </>
             } />
+            <Route path="/version" element={<VersionManager />} />
          </Routes>
       </Router>
     </>

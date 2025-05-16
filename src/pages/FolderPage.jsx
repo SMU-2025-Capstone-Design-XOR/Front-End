@@ -410,8 +410,16 @@ const handlefoldDelete = async () => {
   const closeFileMenu = () => setFileMenu(m => ({ ...m, visible: false }));
 
   // 파일 메뉴 핸들러
-  const handleFileShare    = () => alert(`’${fileMenu.item.name}‘ 공유…`);
-  const handleFileVersion  = () => alert(`’${fileMenu.item.name}‘ 버전 관리…`);
+  // const handleFileShare    = () => alert(`’${fileMenu.item.name}‘ 공유…`);
+  // const handleFileVersion  = () => alert(`’${fileMenu.item.name}‘ 버전 관리…`);
+  const handleFileVersion  = () => {
+    const { fileName } = fileMenu.item;
+    ipcRenderer.send('open-version-window', {
+      folderId: Number(id),
+      relativePath: fileName
+    });
+    closeFileMenu();
+  };
   const handleFileInfo     = () => handleInfo(fileMenu.item.fileName);
   const handleFileDownload = () => handleDownload(fileMenu.item.fileName);
   const handleFileDelete   = () => handleDelete(fileMenu.item.fileName);
@@ -467,7 +475,7 @@ const handlefoldDelete = async () => {
         visible={fileMenu.visible}
         x={fileMenu.x} y={fileMenu.y}
         onClose={closeFileMenu}
-        onShare={handleFileShare}
+        // onShare={handleFileShare}
         onVersion={handleFileVersion}
         onInfo={handleFileInfo}
         onDownload={handleFileDownload}

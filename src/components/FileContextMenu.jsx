@@ -9,7 +9,8 @@ import deleteSvg     from '../assets/Context_Menu/fde.svg';
 import '../css/folder_context.css';
 import '../css/file-context.css';
 
-const FileContextMenu = ({ x, y, visible, onClose, onShare, onVersion, onInfo, onDownload, onDelete }) => {
+// onShare은 일단 나중에
+const FileContextMenu = ({ x, y, visible, onClose, onVersion, onInfo, onDownload, onDelete }) => {
   if (!visible) return null;
 
   return (
@@ -19,10 +20,10 @@ const FileContextMenu = ({ x, y, visible, onClose, onShare, onVersion, onInfo, o
       onContextMenu={e => e.preventDefault()}
       onMouseLeave={onClose}
     >
-      <div className="component" onClick={() => { onShare(); onClose(); }}>
+      {/* <div className="component" onClick={() => { onShare(); onClose(); }}>
         <img className="icon" src={shareSvg} alt="파일 공유" />
         <span className="label">파일 공유</span>
-      </div>
+      </div> */}
       <div className="component" onClick={() => { onVersion(); onClose(); }}>
         <img className="icon" src={versionSvg} alt="버전 관리" />
         <span className="label">버전 관리</span>
@@ -48,7 +49,7 @@ FileContextMenu.propTypes = {
   y:         PropTypes.number.isRequired,
   visible:   PropTypes.bool.isRequired,
   onClose:   PropTypes.func.isRequired,
-  onShare:   PropTypes.func.isRequired,
+  // onShare:   PropTypes.func.isRequired,
   onVersion: PropTypes.func.isRequired,
   onInfo:    PropTypes.func.isRequired,
   onDownload:PropTypes.func.isRequired,

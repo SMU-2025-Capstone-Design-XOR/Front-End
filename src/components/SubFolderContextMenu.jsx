@@ -18,13 +18,13 @@ const SubFolderContextMenu = ({ x, y, visible, onInfo, onDelete, onClose }) => {
       onMouseLeave={onClose}
     >
     {/* 첫 번째 메뉴 */}
-      <div className="component" onClick={onInfo}>
+      <div className="component" onClick={() => {onInfo(); onClose();}}>
         <img className="icon" src={folderInfoSvg} alt="Folder information" />
         <span className="label">서브폴더 정보 가져오기</span>
       </div>
     
     {/* 두 번째 메뉴 */}
-      <div className="component" onClick={onDelete}>
+      <div className="component" onClick={() => {onDelete(); onClose();}}>
         <img className="icon" src={deleteSvg} alt="Sync delete" />
         <span className="label">서브폴더 삭제하기</span>
       </div>
@@ -38,6 +38,7 @@ SubFolderContextMenu.propTypes = {
   visible:  PropTypes.bool.isRequired,
   onInfo:   PropTypes.func.isRequired,
   onDelete: PropTypes.func.isRequired,
+  onClose:   PropTypes.func.isRequired,
 };
 
 export default SubFolderContextMenu;

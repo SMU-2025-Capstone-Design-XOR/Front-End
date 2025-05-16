@@ -60,7 +60,7 @@ function createUserFolder(username) {
 function createWindow() {
   const win = new BrowserWindow({
     width: 1440, height: 1024,
-    minWidth: 800, minHeight: 800,
+    minWidth: 800, minHeight: 600,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
@@ -76,7 +76,23 @@ function createWindow() {
   });
 }
 
-// app.whenReady().then(createWindow);
+
+// ▶️ 새로 추가: 버전 관리용 윈도우 생성 함수
+function createVersionWindow(folderId, relativePath) {
+  const win = new BrowserWindow({
+    width: 750, height: 500,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    }
+  });
+  remoteMain.enable(win.webContents);
+  // React 라우터에서 /version?folderId=…&relativePath=… 경로를 잡아주게끔
+  const url = `file://${path.join(__dirname, 'index.html')}#/version?folderId=${folderId}&relativePath=${encodeURIComponent(relativePath)}`;
+  win.loadURL(url);
+}
+
+
 // 앱 초기화 후
 app.whenReady().then(() => {
   createXorRoot();
@@ -86,6 +102,12 @@ app.whenReady().then(() => {
   ipcMain.handle('init-user-folder', (event, username) => {
     return createUserFolder(username);
   });
+
+  // ▶️ 버전관리 페이지 관련 핸들러 추가
+  ipcMain.on('open-version-window', (_e, { folderId, relativePath }) => {
+    createVersionWindow(folderId, relativePath);
+  });
+
 
   ipcMain.on('sync-file-added',    (e, d) => broadcast('sync-file-added',    d));
   ipcMain.on('sync-file-deleted',  (e, d) => broadcast('sync-file-deleted',  d));
