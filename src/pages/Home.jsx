@@ -90,12 +90,12 @@ export default function Home() {
       });
 
     };
-    ipcRenderer.on('sync-folder-added', onAdded);
+    ipcRenderer.on('dosync-folder-added', onAdded);
 
 
     return () => {
       ipcRenderer.removeListener('sync-folder-removed', onRemoved);
-      ipcRenderer.removeListener('sync-folder-added', onAdded);
+      ipcRenderer.removeListener('dosync-folder-added', onAdded);
     };
     
   }, [userDir, navigate]);

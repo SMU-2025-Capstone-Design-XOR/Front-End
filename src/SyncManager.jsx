@@ -561,6 +561,7 @@ useEffect(() => {
   //   return () => userWatcher.close();
   // }, [userDir]);
 
+
   // Watch folders and poll server
   useEffect(() => {
     // Cleanup
@@ -583,6 +584,54 @@ useEffect(() => {
 
       const doSync = async () => {
         try {
+          // // 0) === “로컬 전용 메인 폴더 자동 등록” ===
+          // const userDir = localStorage.getItem('userDir');
+          // if (userDir) {
+          //   // 0-1) 현재 React state(folders)에 담긴, 서버에 알려진 폴더 경로 집합
+          //   const known = new Set(folders.map(f => f.folderPath));
+
+          //   // 0-2) userDir 바로 아래 실제 디렉토리(숨김·_Delete 제외) 스캔
+          //   const entries = fs.readdirSync(userDir, { withFileTypes: true })
+          //     .filter(d => d.isDirectory() && !d.name.startsWith('.') && d.name !== '_Delete')
+          //     .map(d => d.name);
+
+          //   // 0-3) “로컬에만 있는” 폴더 → 중복 필터 + 순차 등록
+          //   for (const name of entries) {
+          //     const absPath = path.join(userDir, name);
+
+          //     let realAbsPath;
+          //     try {
+          //       realAbsPath = fs.realpathSync(absPath); // 심볼릭 링크 문제도 예방
+          //     } catch (e) {
+          //       console.warn(`⚠️ [초기동기] ${absPath} 접근 실패. 건너뜀`);
+          //       continue;
+          //     }
+
+          //     if (known.has(absPath)) continue;
+          //     console.log(`➕ [초기동기] 로컬 전용 폴더 → 서버등록: ${absPath}`);
+          //     known.add(absPath);
+
+          //     // 0-4) 1) 서버에 폴더 등록
+          //     const created = await sendSyncFolder(absPath);
+          //     const newId   = created.id;
+
+          //     // 0-5) 2) 전체 파일 메타 송신 & 업로드 대상 결정
+          //     const clientFiles = buildClientFiles(absPath);
+          //     const { filesToUpload = [] } = await syncFolder(newId, clientFiles, []);
+
+          //     // 0-6) 3) 누락된 파일 업로드
+          //     for (const rel of filesToUpload) {
+          //       await uploadFile(newId, path.join(absPath, rel), rel);
+          //     }
+
+          //     // 0-7) 4) React state & watcher에도 즉시 반영
+          //     setFolders(prev => [...prev, created]);
+          //     folderPathMap.current[newId] = absPath;
+          //     ipcRenderer.emit('dosync-folder-added', null, created);
+          //   }
+          // }
+
+
           // 서버에서 폴더가 삭제되었는지 체크
           try {
             await getSyncFolder();
@@ -615,6 +664,7 @@ useEffect(() => {
                 continue;
               }
               // 2) 루트에 있는 파일만 다운로드 (서브폴더 내 파일 제외)
+              // 만약 서브폴더 내 파일 다운로드가 구현된다면, if문만 제거하면 된다.
               if (!rel.includes('/')) {
                 try {
                   const blob = await downloadFolderFile(id, rel);
@@ -632,22 +682,6 @@ useEffect(() => {
               } else {
                 console.log(`🚫 [SyncManager] 서브폴더 내 파일 제외됨: ${rel}`);
               }              
-              
-              // // 2) 파일이면 다운로드(현재 서브폴더 내 파일이 다운로드가 되지 않는 상황이여서 주석함.)
-              // try {
-              //   const blob = await downloadFolderFile(id, rel);
-              //   const buf = await blob.arrayBuffer();
-              //   fs.mkdirSync(path.dirname(dest), { recursive: true });
-              //   fs.writeFileSync(dest, Buffer.from(buf));
-              //   ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
-              // } catch (e) {
-              //   if (e.message.startsWith('HTTP 404')) {
-              //     console.warn(`📁 [SyncManager] 다운로드 실패 (404): ${rel}`);
-              //   } else {
-              //     console.error(`📁 [SyncManager] 다운로드 실패: ${rel}`, e);
-              //   }
-              // }
-
 
             }
             initialSyncDoneRef.current[id] = true;
