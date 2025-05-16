@@ -8,7 +8,7 @@ import deleteSvg     from '../assets/Context_Menu/folder-delete.svg';
 
 import '../css/folder_context.css';
 
-const FolderContextMenu = ({ x, y, visible, onInfo, onRedown, onDelete }) => {
+const FolderContextMenu = ({ x, y, visible, onInfo, onRedown, onDelete, onClose }) => {
   if (!visible) return null;
 
   return (
@@ -16,6 +16,7 @@ const FolderContextMenu = ({ x, y, visible, onInfo, onRedown, onDelete }) => {
       className="folder-context-menu"
       style={{ top: y, left: x }}
       onContextMenu={e => e.preventDefault()}
+      onMouseLeave={onClose}
     >
       {/* 첫 번째 메뉴 */}
       <div className="component" onClick={onInfo}>

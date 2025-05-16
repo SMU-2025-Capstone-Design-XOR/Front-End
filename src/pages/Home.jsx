@@ -353,6 +353,7 @@ export default function Home() {
         onInfo={handleInfo}
         onRedown={handleRedown}
         onDelete={handleDelete}
+        onClose={closeUserMenu}
       />
     </div>
   );

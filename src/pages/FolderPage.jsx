@@ -8,6 +8,7 @@ const { ipcRenderer } = window.require('electron');
 import personIcon from '../assets/Home/person-24.svg';
 import { UserContextMenu } from '../components/UserContextMenu';
 import FolderContextMenu from '../components/SubFolderContextMenu';
+import FileContextMenu from '../components/FileContextMenu';
 
 import backroot from '../assets/InFolder/back-root.svg';
 import subfold from '../assets/InFolder/sub.svg';
@@ -102,29 +103,6 @@ export default function FolderPage() {
         }
         // console.log('[DEBUG] fileName:', rel, '→ remainder:', remainder, '→ segments:', segments);
       });
-
-      // // 🔽 여기에 로컬 빈 폴더 추가
-      // try {
-      //   const clientMap = window.electronAPI.getClientMap(id); // preload 함수 필요
-      //   if (clientMap) {
-      //     for (const rel in clientMap) {
-      //       const entry = clientMap[rel];
-      //       if (entry.type !== 'directory') continue;
-      //       const normalizedRel = rel.replace(/^\/+/, '').replace(/\/+$/, '');
-      //       const prefix = subPath ? subPath + '/' : '';
-      //       if (!normalizedRel.startsWith(prefix)) continue;
-      //       const remainder = normalizedRel.slice(prefix.length);
-      //       if (!remainder || remainder.includes('//')) continue;
-      //       const segments = remainder.split('/');
-      //       if (segments.length === 1) {
-      //         dirSet.add(segments[0]);
-      //       }
-      //     }
-      //   }
-      // } catch (e) {
-      //   console.warn('🔶 로컬 빈 폴더 처리 중 오류:', e);
-      // }
-
       
       const dirItems = Array.from(dirSet).map(name => ({
         fileId: `dir__${subPath ? `${subPath}/${name}` : name}`,
@@ -423,18 +401,20 @@ const handlefoldDelete = async () => {
 
 
 
-  // ── 우클릭 컨텍스트 메뉴 ──
-  const showFileMenu = (e, { fileId, fileName, name }) => {
+  // 파일 컨텍스트 메뉴 상태
+  const [fileMenu, setFileMenu] = useState({ visible: false, x: 0, y: 0, item: null });
+  const showFileMenu = (e, item) => {
     e.preventDefault();
-    const menu = new Menu();
-    console.log('이벤트 받은 경로?', fileName);
-    menu.append(new MenuItem({ label: '파일 공유',   click: () => alert(`’${name}‘ 공유…`) }));
-    menu.append(new MenuItem({ label: '버전 관리',   click: () => alert(`’${name}‘ 버전 관리…`) }));
-    menu.append(new MenuItem({ label: '정보 가져오기', click: () => handleInfo(fileName) }));
-    menu.append(new MenuItem({ label: '파일 다운로드', click: () => handleDownload(fileName) }));
-    menu.append(new MenuItem({ label: '파일 삭제',    click: () => handleDelete(fileName) }));
-    menu.popup({ window: getCurrentWindow() });
+    setFileMenu({ visible: true, x: e.clientX, y: e.clientY, item });
   };
+  const closeFileMenu = () => setFileMenu(m => ({ ...m, visible: false }));
+
+  // 파일 메뉴 핸들러
+  const handleFileShare    = () => alert(`’${fileMenu.item.name}‘ 공유…`);
+  const handleFileVersion  = () => alert(`’${fileMenu.item.name}‘ 버전 관리…`);
+  const handleFileInfo     = () => handleInfo(fileMenu.item.fileName);
+  const handleFileDownload = () => handleDownload(fileMenu.item.fileName);
+  const handleFileDelete   = () => handleDelete(fileMenu.item.fileName);
 
   return (
     <div className="home">
@@ -480,6 +460,18 @@ const handlefoldDelete = async () => {
         onInfo={handlefoldInfo}
         onDelete={handlefoldDelete}
         onClose={closeUserMenu}
+      />
+
+      {/* FileContextMenu */}
+      <FileContextMenu
+        visible={fileMenu.visible}
+        x={fileMenu.x} y={fileMenu.y}
+        onClose={closeFileMenu}
+        onShare={handleFileShare}
+        onVersion={handleFileVersion}
+        onInfo={handleFileInfo}
+        onDownload={handleFileDownload}
+        onDelete={handleFileDelete}
       />
 
     </div>

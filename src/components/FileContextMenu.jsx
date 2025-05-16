@@ -1,10 +1,12 @@
 import React from 'react';
 import PropTypes from 'prop-types';
-import shareSvg      from '../assets/Context_Menu/file-share.svg';
-import versionSvg    from '../assets/Context_Menu/file-version.svg';
-import infoSvg       from '../assets/Context_Menu/file-info.svg';
-import downloadSvg   from '../assets/Context_Menu/file-download.svg';
-import deleteSvg     from '../assets/Context_Menu/file-delete.svg';
+import shareSvg      from '../assets/Context_Menu/fs.svg';
+import versionSvg    from '../assets/Context_Menu/vs.svg';
+import infoSvg       from '../assets/Context_Menu/fi.svg';
+import downloadSvg   from '../assets/Context_Menu/fd.svg';
+import deleteSvg     from '../assets/Context_Menu/fde.svg';
+
+import '../css/folder_context.css';
 import '../css/file-context.css';
 
 const FileContextMenu = ({ x, y, visible, onClose, onShare, onVersion, onInfo, onDownload, onDelete }) => {
