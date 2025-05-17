@@ -74,7 +74,7 @@ export default function FolderPage() {
       // Map을 다시 배열로 변환
       const uniqueFiles = Array.from(fileMap.values());
 
-      const mapped = uniqueFiles.map(f => {
+      const baseMapped = uniqueFiles.map(f => {
         const rel = f.relativePath?.trim() || f.originalName;
         return {
           fileId: f.id ?? f.fileId,
@@ -83,10 +83,11 @@ export default function FolderPage() {
           isDirectory: f.type === 'folder' || rel.endsWith('/'),
           lastModified: f.lastModified,
         };
-      });
+      });      
 
-      // console.log('🔷 [UI에 사용할 형태 - 중복 제거 완료]', mapped);
-
+      const mapped = baseMapped.filter(item =>
+        !(item.isDirectory && item.fileName === `${subPath}/`)
+      );      
 
       // 현재 경로(subPath) 기준으로 서브폴더 추출
       const dirSet = new Set();
@@ -411,7 +412,6 @@ const handlefoldDelete = async () => {
 
   // 파일 메뉴 핸들러
   // const handleFileShare    = () => alert(`’${fileMenu.item.name}‘ 공유…`);
-  // const handleFileVersion  = () => alert(`’${fileMenu.item.name}‘ 버전 관리…`);
   const handleFileVersion  = () => {
     const { fileName } = fileMenu.item;
     ipcRenderer.send('open-version-window', {
