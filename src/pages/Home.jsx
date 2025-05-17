@@ -130,6 +130,10 @@ export default function Home() {
       // (선택) 초기 내용 복사까지 하려면 다음 같이:
       copyRecursive(sel, targetDir);
     }
+    // // ① 먼저 justAdded 세트에 등록 (SyncManager 가 로컬 watcher 에서 무시하도록)
+    // ipcRenderer.send('local-folder-added', targetDir); // 무조건 보냄
+    // fs.mkdirSync(targetDir, { recursive: true });
+    // copyRecursive(sel, targetDir);
 
     try {
       // 3) 서버에 등록할 때는 targetDir 사용
