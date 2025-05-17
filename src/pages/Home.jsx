@@ -125,7 +125,7 @@ export default function Home() {
     }    
 
     if (!fs.existsSync(targetDir)) {
-      ipcRenderer.send('local-folder-added', targetDir);
+      // ipcRenderer.send('local-folder-added', targetDir);
       fs.mkdirSync(targetDir, { recursive: true });
       // (선택) 초기 내용 복사까지 하려면 다음 같이:
       copyRecursive(sel, targetDir);
@@ -186,7 +186,7 @@ export default function Home() {
       }
 
       // 6) 목록 갱신 & SyncManager에 알리기
-      // const refreshed = await getSyncFolder();
+      
       // const folders = Array.isArray(refreshed) ? refreshed : [];
       // setSyncFolders(prev => {
       //   // 이미 같은 ID가 있으면 무시
@@ -194,8 +194,8 @@ export default function Home() {
       //   // 아니면 전체 새 목록으로 덮어쓰기
       //   return folders;
       // });
-
-      // setSyncFolders(Array.isArray(refreshed) ? refreshed : []);
+      const refreshed = await getSyncFolder();
+      setSyncFolders(Array.isArray(refreshed) ? refreshed : []);
       // 이 경로는 SyncManager 쪽에서 무시해야 할 “방금 추가된” 경로
 
 

@@ -416,40 +416,40 @@ const handleLocalChange = async (filePath, id, root) => {
   
 
 // 1) IPC로 “local-folder-added” 받기
-useEffect(() => {
-  const onLocalAdded = (_e, absPath) => {
-    justAdded.current.add(absPath);
-  };
-  ipcRenderer.on('local-folder-added', onLocalAdded);
-  return () => {
-    ipcRenderer.removeListener('local-folder-added', onLocalAdded);
-  };
-}, []);
+// useEffect(() => {
+//   const onLocalAdded = (_e, absPath) => {
+//     justAdded.current.add(absPath);
+//   };
+//   ipcRenderer.on('local-folder-added', onLocalAdded);
+//   return () => {
+//     ipcRenderer.removeListener('local-folder-added', onLocalAdded);
+//   };
+// }, []);
 
-// 2) chokidar watcher: addDir 이벤트 무시 로직
-useEffect(() => {
-  if (!userDir) return;
-  const watcher = chokidar.watch(userDir, {
-    ignoreInitial: true,
-    depth: 1,
-    persistent: true,
-  });
+// // 2) chokidar watcher: addDir 이벤트 무시 로직
+// useEffect(() => {
+//   if (!userDir) return;
+//   const watcher = chokidar.watch(userDir, {
+//     ignoreInitial: true,
+//     depth: 1,
+//     persistent: true,
+//   });
 
-  watcher.on('addDir', absPath => {
-    // Home.jsx에서 보낸 경로라면 무시
-    if (justAdded.current.has(absPath)) {
-      justAdded.current.delete(absPath);
-      return;
-    }
-    // 진짜 외부에서 추가된 폴더만 처리
-    const rel = path.relative(userDir, absPath).replace(/\\/g, '/');
-    if (rel && !rel.includes('/')) {
-      handleLocalRootAdd(absPath);
-    }
-  });
+//   watcher.on('addDir', absPath => {
+//     // Home.jsx에서 보낸 경로라면 무시
+//     if (justAdded.current.has(absPath)) {
+//       justAdded.current.delete(absPath);
+//       return;
+//     }
+//     // 진짜 외부에서 추가된 폴더만 처리
+//     const rel = path.relative(userDir, absPath).replace(/\\/g, '/');
+//     if (rel && !rel.includes('/')) {
+//       handleLocalRootAdd(absPath);
+//     }
+//   });
 
-  return () => watcher.close();
-}, [userDir]);
+//   return () => watcher.close();
+// }, [userDir]);
 
   // ── 초기 싱크폴더 로드 ──
   useEffect(() => {
@@ -584,53 +584,51 @@ useEffect(() => {
 
       const doSync = async () => {
         try {
-          // // 0) === “로컬 전용 메인 폴더 자동 등록” ===
-          // const userDir = localStorage.getItem('userDir');
-          // if (userDir) {
-          //   // 0-1) 현재 React state(folders)에 담긴, 서버에 알려진 폴더 경로 집합
-          //   const known = new Set(folders.map(f => f.folderPath));
+          // 0) === “로컬 전용 메인 폴더 자동 등록” ===
+          const userDir = localStorage.getItem('userDir');
+          if (userDir) {
+            // 0-1) 현재 React state(folders)에 담긴, 서버에 알려진 폴더 경로 집합
+            const known = new Set(folders.map(f => f.folderPath));
 
-          //   // 0-2) userDir 바로 아래 실제 디렉토리(숨김·_Delete 제외) 스캔
-          //   const entries = fs.readdirSync(userDir, { withFileTypes: true })
-          //     .filter(d => d.isDirectory() && !d.name.startsWith('.') && d.name !== '_Delete')
-          //     .map(d => d.name);
+            // 0-2) userDir 바로 아래 실제 디렉토리(숨김·_Delete 제외) 스캔
+            const entries = fs.readdirSync(userDir, { withFileTypes: true })
+              .filter(d => d.isDirectory() && !d.name.startsWith('.') && d.name !== '_Delete')
+              .map(d => d.name);
 
-          //   // 0-3) “로컬에만 있는” 폴더 → 중복 필터 + 순차 등록
-          //   for (const name of entries) {
-          //     const absPath = path.join(userDir, name);
+            // 0-3) “로컬에만 있는” 폴더 → 중복 필터 + 순차 등록
+            for (const name of entries) {
+              const absPath = path.join(userDir, name);
 
-          //     let realAbsPath;
-          //     try {
-          //       realAbsPath = fs.realpathSync(absPath); // 심볼릭 링크 문제도 예방
-          //     } catch (e) {
-          //       console.warn(`⚠️ [초기동기] ${absPath} 접근 실패. 건너뜀`);
-          //       continue;
-          //     }
+              let realAbsPath;
+              try {
+                realAbsPath = fs.realpathSync(absPath); // 심볼릭 링크 문제도 예방
+              } catch (e) {
+                console.warn(`⚠️ [초기동기] ${absPath} 접근 실패. 건너뜀`);
+                continue;
+              }
 
-          //     if (known.has(absPath)) continue;
-          //     console.log(`➕ [초기동기] 로컬 전용 폴더 → 서버등록: ${absPath}`);
-          //     known.add(absPath);
+              if (known.has(absPath)) continue;
+              console.log(`➕ [초기동기] 로컬 전용 폴더 → 서버등록: ${absPath}`);
+              known.add(absPath);
 
-          //     // 0-4) 1) 서버에 폴더 등록
-          //     const created = await sendSyncFolder(absPath);
-          //     const newId   = created.id;
+              // 0-4) 1) 서버에 폴더 등록
+              const created = await sendSyncFolder(absPath);
+              const newId   = created.id;
 
-          //     // 0-5) 2) 전체 파일 메타 송신 & 업로드 대상 결정
-          //     const clientFiles = buildClientFiles(absPath);
-          //     const { filesToUpload = [] } = await syncFolder(newId, clientFiles, []);
+              // 0-5) 2) 전체 파일 메타 송신 & 업로드 대상 결정
+              const clientFiles = buildClientFiles(absPath);
+              const { filesToUpload = [] } = await syncFolder(newId, clientFiles, []);
 
-          //     // 0-6) 3) 누락된 파일 업로드
-          //     for (const rel of filesToUpload) {
-          //       await uploadFile(newId, path.join(absPath, rel), rel);
-          //     }
-
-          //     // 0-7) 4) React state & watcher에도 즉시 반영
-          //     setFolders(prev => [...prev, created]);
-          //     folderPathMap.current[newId] = absPath;
-          //     ipcRenderer.emit('dosync-folder-added', null, created);
-          //   }
-          // }
-
+              // 0-6) 3) 누락된 파일 업로드
+              for (const rel of filesToUpload) {
+                await uploadFile(newId, path.join(absPath, rel), rel);
+              }
+              // 0-7) 4) React state & watcher에도 즉시 반영
+              setFolders(prev => [...prev, created]);
+              folderPathMap.current[newId] = absPath;
+              ipcRenderer.emit('dosync-folder-added', null, created);
+            }
+          }
 
           // 서버에서 폴더가 삭제되었는지 체크
           try {
