@@ -125,9 +125,8 @@ export default function Home() {
     }    
 
     if (!fs.existsSync(targetDir)) {
-      // ipcRenderer.send('local-folder-added', targetDir);
+      ipcRenderer.send('local-folder-added', targetDir);
       fs.mkdirSync(targetDir, { recursive: true });
-      // (선택) 초기 내용 복사까지 하려면 다음 같이:
       copyRecursive(sel, targetDir);
     }
     // // ① 먼저 justAdded 세트에 등록 (SyncManager 가 로컬 watcher 에서 무시하도록)

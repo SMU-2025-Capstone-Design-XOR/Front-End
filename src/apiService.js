@@ -358,14 +358,14 @@ export const rollbackFileVersion = async (syncFolderId, relativePath, versionId)
  * 특정 버전 삭제 (선택 사항)
  * DELETE /users/{userId}/sync-folders/{folderId}/files/{relativePath}/versions/{versionId}
  */
-export const deleteFileVersion = async (syncFolderId, relativePath, versionId) => {
-  const userId = getUserIdFromToken();
-  if (!userId) throw new Error('유효한 토큰이 없습니다.');
+// export const deleteFileVersion = async (syncFolderId, relativePath, versionId) => {
+//   const userId = getUserIdFromToken();
+//   if (!userId) throw new Error('유효한 토큰이 없습니다.');
 
-  const safePath = relativePath.split('/').map(encodeURIComponent).join('/');
-  const encodedVersionId = encodeURIComponent(versionId);
-  const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${safePath}/versions/${encodedVersionId}`;
+//   const safePath = relativePath.split('/').map(encodeURIComponent).join('/');
+//   const encodedVersionId = encodeURIComponent(versionId);
+//   const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${safePath}/versions/${encodedVersionId}`;
 
-  return fetchWithAuth(url, { method: 'DELETE' });
-};
+//   return fetchWithAuth(url, { method: 'DELETE' });
+// };
 

@@ -376,27 +376,19 @@ const handleLocalChange = async (filePath, id, root) => {
       // 4) 서버에 업로드
       for (const rel of filesToUpload) {
         await uploadFile(folderId, path.join(absPath, rel), rel);
-        ipcRenderer.send('sync-file-added', { folderId, relativePath: rel });
+        // ipcRenderer.send('sync-file-added', { folderId, relativePath: rel });
       }
-  
-      // 5) 서버에서 다운로드 (서브폴더 내 파일 제외)
-      for (const rel of filesToDownload) {
-        if (!rel.includes('/')) {
-          const blob = await downloadFolderFile(folderId, rel);
-          const buf  = await blob.arrayBuffer();
-          const dest = path.join(absPath, rel);
-          fs.mkdirSync(path.dirname(dest), { recursive: true });
-          fs.writeFileSync(dest, Buffer.from(buf));
-          ipcRenderer.send('sync-file-added', { folderId, relativePath: rel });
-        }
-      }
-  
+    
       // 6) 로컬 상태 업데이트
-      setFolders(prev => [...prev, created]);
+      // setFolders(prev => [...prev, created]);
+      setFolders(prev => {
+        if (prev.some(f => f.id === folderId)) return prev;
+        return [...prev, created];
+      });
       folderPathMap.current[folderId] = absPath;
 
       // 7) IPC로 홈 화면(및 나머지 컴포넌트)에 “폴더 추가” 알리기
-      ipcRenderer.send('sync-folder-added', created);      
+      ipcRenderer.send('dosync-folder-added', created);      
   
     } catch (e) {
       console.error('handleLocalRootAdd 에러:', e);
@@ -415,47 +407,18 @@ const handleLocalChange = async (filePath, id, root) => {
   }
   
 
-// 1) IPC로 “local-folder-added” 받기
-// useEffect(() => {
-//   const onLocalAdded = (_e, absPath) => {
-//     justAdded.current.add(absPath);
-//   };
-//   ipcRenderer.on('local-folder-added', onLocalAdded);
-//   return () => {
-//     ipcRenderer.removeListener('local-folder-added', onLocalAdded);
-//   };
-// }, []);
-
-// // 2) chokidar watcher: addDir 이벤트 무시 로직
-// useEffect(() => {
-//   if (!userDir) return;
-//   const watcher = chokidar.watch(userDir, {
-//     ignoreInitial: true,
-//     depth: 1,
-//     persistent: true,
-//   });
-
-//   watcher.on('addDir', absPath => {
-//     // Home.jsx에서 보낸 경로라면 무시
-//     if (justAdded.current.has(absPath)) {
-//       justAdded.current.delete(absPath);
-//       return;
-//     }
-//     // 진짜 외부에서 추가된 폴더만 처리
-//     const rel = path.relative(userDir, absPath).replace(/\\/g, '/');
-//     if (rel && !rel.includes('/')) {
-//       handleLocalRootAdd(absPath);
-//     }
-//   });
-
-//   return () => watcher.close();
-// }, [userDir]);
-
+  const autoRegisteredRef = useRef(false);
   // ── 초기 싱크폴더 로드 & 루트폴더 자동 등록 ──
   useEffect(() => {
+    if (autoRegisteredRef.current) return;
+    autoRegisteredRef.current = true;
+
+    const dir = localStorage.getItem('userDir');
+    if (!dir) return;
+
     (async () => {
-      const dir = localStorage.getItem('userDir');
-      if (!dir) return;
+      // const dir = localStorage.getItem('userDir');
+      // if (!dir) return;
 
       // 1) 서버에 올라간 폴더 목록
       const serverFolders = await getSyncFolder() || [];
@@ -489,6 +452,45 @@ const handleLocalChange = async (filePath, id, root) => {
     })();
   }, []);
 
+
+  // 1) IPC로 “local-folder-added” 받기
+useEffect(() => {
+  const onLocalAdded = (_e, absPath) => {
+    justAdded.current.add(absPath);
+  };
+  ipcRenderer.on('local-folder-added', onLocalAdded);
+  return () => {
+    ipcRenderer.removeListener('local-folder-added', onLocalAdded);
+  };
+}, []);
+
+// 2) chokidar watcher: addDir 이벤트 무시 로직
+useEffect(() => {
+  if (!userDir) return;
+  const watcher = chokidar.watch(userDir, {
+    ignoreInitial: true,
+    depth: 1,
+    persistent: true,
+  });
+
+  const onAddDir = async (absPath) => {
+    // ① Home.jsx에서 보낸 경로면 justAdded 세트에 담겨 있음 → 무시
+    if (justAdded.current.has(absPath)) {
+      justAdded.current.delete(absPath);
+      return;
+    }
+
+    // ② userDir 바로 아래 레벨만 처리
+    const rel = path.relative(userDir, absPath).replace(/\\/g, '/');
+    if (rel && !rel.includes('/')) {
+      // “진짜 외부에서 생성된” 메인 폴더라면 서버에 등록
+      await handleLocalRootAdd(absPath);
+    }
+  };
+
+  watcher.on('addDir', onAddDir);
+  return () => watcher.close();
+}, [userDir, folders]);
 
   // 루트경로에서 메인폴더 추가/삭제 동시 처리
   useEffect(() => {
@@ -578,6 +580,11 @@ const handleLocalChange = async (filePath, id, root) => {
       initialSyncDoneRef.current[id] = false;
 
       const doSync = async () => {
+        if (initialSyncDoneRef.current[id]) {
+          // 이미 한 번 doSync를 돌렸으면 스킵
+          return;
+        }
+
         try {
           // 서버에서 폴더가 삭제되었는지 체크
           try {
@@ -707,9 +714,7 @@ const handleLocalChange = async (filePath, id, root) => {
             }
           }
       
-          // cleanupEmptyDirs(root);
           initialSyncDoneRef.current[id] = true;
-          // prevClientMapRef.current[id] = localMap;
       
         } catch (e) {
           console.error('📁 [SyncManager] 동기화 중 에러 발생:', e);
