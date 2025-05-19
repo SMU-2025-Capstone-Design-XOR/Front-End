@@ -331,7 +331,7 @@ const handleLocalChange = async (filePath, id, root) => {
   async function handleLocalRootAdd(absPath) {
     // 1) 이미 등록된 폴더면 아무것도 안 함
     if (folders.some(f => f.folderPath === absPath)) return;
-    
+    console.warn('로컬에서 폴더 추가가 감지되었습니다.');
     try {
       // 1) 서버에 “메인 폴더” 등록
       // const created = await sendSyncFolder(absPath);
@@ -378,9 +378,11 @@ const handleLocalChange = async (filePath, id, root) => {
         await uploadFile(folderId, path.join(absPath, rel), rel);
         // ipcRenderer.send('sync-file-added', { folderId, relativePath: rel });
       }
-    
+
+      // ● “새로 추가된 폴더”는 이미 여기서 완전 동기화했으므로
+      //   doSync()에서 다시 처리할 필요가 없도록 표시해 둔다
+      initialSyncDoneRef.current[folderId] = true;
       // 6) 로컬 상태 업데이트
-      // setFolders(prev => [...prev, created]);
       setFolders(prev => {
         if (prev.some(f => f.id === folderId)) return prev;
         return [...prev, created];
@@ -571,157 +573,160 @@ useEffect(() => {
 
     folders.forEach(folder => {
       const { id, folderPath: root } = folder;
-
       if (!id || !root) {
         console.warn('[SyncManager] 잘못된 폴더 데이터 무시:', folder);
         return;
       }      
       prevClientMapRef.current[id] = new Map();
-      initialSyncDoneRef.current[id] = false;
-
-      const doSync = async () => {
-        if (initialSyncDoneRef.current[id]) {
-          // 이미 한 번 doSync를 돌렸으면 스킵
-          return;
-        }
-
-        try {
-          // 서버에서 폴더가 삭제되었는지 체크
-          try {
-            await getSyncFolder();
-          } catch (e) {
-            if (e.message.startsWith('HTTP 404')) {
-              console.warn(`✂️ [SyncManager] 서버에서 폴더(${id}) 삭제됨 → 로컬에서도 제거`);
-              watchersRef.current[id]?.close();
-              clearInterval(intervalsRef.current[id]);
-              fs.rmSync(root, { recursive: true, force: true });
-              setFolders(prev => prev.filter(f => f.id !== id));
-              return;
-            }
-            throw e;
-          }       
-      
-          // 로컬 폴더가 존재하지 않는 경우 전체 재다운로드
-          if (!fs.existsSync(root)) {
-            console.warn(`📁 [SyncManager] 로컬 폴더가 사라졌습니다. 재생성 후 전체 다운로드 → ${root}`);
-            fs.mkdirSync(root, { recursive: true });
-            const serverList = await getFolderFileList(id);
-            for (const f of serverList) {
-              const rel = f.relativePath || f.originalName;
-              const dest = path.join(root, rel);
-              // 1) 디렉터리면 폴더 생성만
-              if (rel.endsWith('/')) {
-                if (!fs.existsSync(dest)) {
-                  fs.mkdirSync(dest, { recursive: true });
-                  ipcRenderer.send('sub-folder-added', { folderId: id, relativePath: rel });
-                }
-                continue;
-              }
-              // 2) 루트에 있는 파일만 다운로드 (서브폴더 내 파일 제외)
-              // 만약 서브폴더 내 파일 다운로드가 구현된다면, if문만 제거하면 된다.
-              if (!rel.includes('/')) {
-                try {
-                  const blob = await downloadFolderFile(id, rel);
-                  const buf = await blob.arrayBuffer();
-                  fs.mkdirSync(path.dirname(dest), { recursive: true });
-                  fs.writeFileSync(dest, Buffer.from(buf));
-                  ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
-                } catch (e) {
-                  if (e.message.startsWith('HTTP 404')) {
-                    console.warn(`📁 [SyncManager] 다운로드 실패 (404): ${rel}`);
-                  } else {
-                    console.error(`📁 [SyncManager] 다운로드 실패: ${rel}`, e);
-                  }
-                }
-              } else {
-                console.log(`🚫 [SyncManager] 서브폴더 내 파일 제외됨: ${rel}`);
-              }              
-
-            }
-            initialSyncDoneRef.current[id] = true;
+      // initialSyncDoneRef.current[id] = false;
+      if (initialSyncDoneRef.current[id]) {
+        return;
+      }
+      else{
+        const doSync = async () => {
+          if (initialSyncDoneRef.current[id]) {
+            // 이미 한 번 doSync를 돌렸으면 스킵
             return;
           }
-
-          // 3) 이제 “증분 동기화” 단계: 로컬 ↔ 서버 메타 비교
-
-          // 3-1) 로컬 전체 메타 수집
-          const localList = buildClientFiles(root);
-          const localMap  = new Map(localList.map(f => [f.relativePath, f]));
-
-          // 3-2) 서버 전체 메타 수집
-          const serverList = await getFolderFileList(id);
-          const serverMap  = new Map(serverList.map(f => [f.relativePath, f]));
-
-          // 3-3) ▷ 로컬에만 있는 파일 → 서버로 업로드
-          for (const [rel, _localMeta] of localMap.entries()) {
-            // skip 숨김파일/폴더, 그리고 디렉터리
-            if (rel.startsWith('.') || rel.endsWith('/')) continue;
-            if (!serverMap.has(rel)) {
-              console.warn(`☁️ 로컬 전용 파일 → 업로드: ${rel}`);
-              await uploadFile(id, path.join(root, rel), rel);
-              ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
-            }
-          }
-
-          // 3-4) ▷ 서버에만 있는 파일 → 로컬로 다운로드 (서브폴더 내 파일 제외)
-          for (const [rel, _serverMeta] of serverMap.entries()) {
-            // skip 폴더 엔트리, 숨김파일
-            if (rel.endsWith('/') || rel.startsWith('.')) continue;
-            // only download root-level files
-            if (!localMap.has(rel) && !rel.includes('/')) {
-              console.warn(`☁️ 서버 전용 파일 → 다운로드: ${rel}`);
-              const blob = await downloadFolderFile(id, rel);
-              const buf  = await blob.arrayBuffer();
-              const dest = path.join(root, rel);
-              fs.mkdirSync(path.dirname(dest), { recursive: true });
-              fs.writeFileSync(dest, Buffer.from(buf));
-              ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
-            }
-          }
-
-          // 3-5) ▷ 변경된 파일 동기화 (해시 비교)
-          for (const [rel, localMeta] of localMap.entries()) {
-            if (rel.startsWith('.') || rel.endsWith('/')) continue;
-            const serverMeta = serverMap.get(rel);
-            if (serverMeta) {
-              if (localMeta.hash !== serverMeta.hash) {
-                const clientTime = new Date(localMeta.lastModified);
-                const serverTime = new Date(serverMeta.lastModified);
-                if (clientTime > serverTime) {
-                  console.warn(`🔼 로컬이 최신 → 업로드: ${rel}`);
-                  await uploadFile(id, path.join(root, rel), rel);
-                  ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: rel });
-                } else {
-                  // 서브폴더 내 파일은 변경 반영할 수 없다... 특히 다운로드.
-                  if (!rel.includes('/')) {
-                    console.warn(`🔽 서버가 최신 → 다운로드: ${rel}`);
+          try {
+            // 서버에서 폴더가 삭제되었는지 체크
+            try {
+              await getSyncFolder();
+            } catch (e) {
+              if (e.message.startsWith('HTTP 404')) {
+                console.warn(`✂️ [SyncManager] 서버에서 폴더(${id}) 삭제됨 → 로컬에서도 제거`);
+                watchersRef.current[id]?.close();
+                clearInterval(intervalsRef.current[id]);
+                fs.rmSync(root, { recursive: true, force: true });
+                setFolders(prev => prev.filter(f => f.id !== id));
+                return;
+              }
+              throw e;
+            }       
+        
+            // 로컬 폴더가 존재하지 않는 경우 전체 재다운로드
+            if (!fs.existsSync(root)) {
+              console.warn(`📁 [SyncManager] 로컬 폴더가 사라졌습니다. 재생성 후 전체 다운로드 → ${root}`);
+              fs.mkdirSync(root, { recursive: true });
+              const serverList = await getFolderFileList(id);
+              for (const f of serverList) {
+                const rel = f.relativePath || f.originalName;
+                const dest = path.join(root, rel);
+                // 1) 디렉터리면 폴더 생성만
+                if (rel.endsWith('/')) {
+                  if (!fs.existsSync(dest)) {
+                    fs.mkdirSync(dest, { recursive: true });
+                    ipcRenderer.send('sub-folder-added', { folderId: id, relativePath: rel });
+                  }
+                  continue;
+                }
+                // 2) 루트에 있는 파일만 다운로드 (서브폴더 내 파일 제외)
+                // 만약 서브폴더 내 파일 다운로드가 구현된다면, if문만 제거하면 된다.
+                if (!rel.includes('/')) {
+                  try {
                     const blob = await downloadFolderFile(id, rel);
-                    const buf  = await blob.arrayBuffer();
-                    const dest = path.join(root, rel);
+                    const buf = await blob.arrayBuffer();
+                    fs.mkdirSync(path.dirname(dest), { recursive: true });
                     fs.writeFileSync(dest, Buffer.from(buf));
+                    ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
+                  } catch (e) {
+                    if (e.message.startsWith('HTTP 404')) {
+                      console.warn(`📁 [SyncManager] 다운로드 실패 (404): ${rel}`);
+                    } else {
+                      console.error(`📁 [SyncManager] 다운로드 실패: ${rel}`, e);
+                    }
+                  }
+                } else {
+                  console.log(`🚫 [SyncManager] 서브폴더 내 파일 제외됨: ${rel}`);
+                }              
+  
+              }
+              initialSyncDoneRef.current[id] = true;
+              return;
+            }
+  
+            // 3) 이제 “증분 동기화” 단계: 로컬 ↔ 서버 메타 비교
+  
+            // 3-1) 로컬 전체 메타 수집
+            const localList = buildClientFiles(root);
+            const localMap  = new Map(localList.map(f => [f.relativePath, f]));
+  
+            // 3-2) 서버 전체 메타 수집
+            const serverList = await getFolderFileList(id);
+            const serverMap  = new Map(serverList.map(f => [f.relativePath, f]));
+  
+            // 3-3) ▷ 로컬에만 있는 파일 → 서버로 업로드
+            for (const [rel, _localMeta] of localMap.entries()) {
+              // skip 숨김파일/폴더, 그리고 디렉터리
+              if (rel.startsWith('.') || rel.endsWith('/')) continue;
+              if (!serverMap.has(rel)) {
+                console.warn(`☁️ 로컬 전용 파일 → 업로드: ${rel}`);
+                await uploadFile(id, path.join(root, rel), rel);
+                ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
+              }
+            }
+  
+            // 3-4) ▷ 서버에만 있는 파일 → 로컬로 다운로드 (서브폴더 내 파일 제외)
+            for (const [rel, _serverMeta] of serverMap.entries()) {
+              // skip 폴더 엔트리, 숨김파일
+              if (rel.endsWith('/') || rel.startsWith('.')) continue;
+              // only download root-level files
+              if (!localMap.has(rel) && !rel.includes('/')) {
+                console.warn(`☁️ 서버 전용 파일 → 다운로드: ${rel}`);
+                const blob = await downloadFolderFile(id, rel);
+                const buf  = await blob.arrayBuffer();
+                const dest = path.join(root, rel);
+                fs.mkdirSync(path.dirname(dest), { recursive: true });
+                fs.writeFileSync(dest, Buffer.from(buf));
+                ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
+              }
+            }
+  
+            // 3-5) ▷ 변경된 파일 동기화 (해시 비교)
+            for (const [rel, localMeta] of localMap.entries()) {
+              if (rel.startsWith('.') || rel.endsWith('/')) continue;
+              const serverMeta = serverMap.get(rel);
+              if (serverMeta) {
+                if (localMeta.hash !== serverMeta.hash) {
+                  const clientTime = new Date(localMeta.lastModified);
+                  const serverTime = new Date(serverMeta.lastModified);
+                  if (clientTime > serverTime) {
+                    console.warn(`🔼 로컬이 최신 → 업로드: ${rel}`);
+                    await uploadFile(id, path.join(root, rel), rel);
                     ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: rel });
                   } else {
-                    console.log(`🚫 변경 반영 제외 (서브폴더 파일): ${rel}`);
-                  }                  
-                  // console.warn(`🔽 서버가 최신 → 다운로드: ${rel}`);
-                  // const blob = await downloadFolderFile(id, rel);
-                  // const buf  = await blob.arrayBuffer();
-                  // const dest = path.join(root, rel);
-                  // fs.writeFileSync(dest, Buffer.from(buf));
-                  // ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: rel });
+                    // 서브폴더 내 파일은 변경 반영할 수 없다... 특히 다운로드.
+                    if (!rel.includes('/')) {
+                      console.warn(`🔽 서버가 최신 → 다운로드: ${rel}`);
+                      const blob = await downloadFolderFile(id, rel);
+                      const buf  = await blob.arrayBuffer();
+                      const dest = path.join(root, rel);
+                      fs.writeFileSync(dest, Buffer.from(buf));
+                      ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: rel });
+                    } else {
+                      console.log(`🚫 변경 반영 제외 (서브폴더 파일): ${rel}`);
+                    }                  
+                    // console.warn(`🔽 서버가 최신 → 다운로드: ${rel}`);
+                    // const blob = await downloadFolderFile(id, rel);
+                    // const buf  = await blob.arrayBuffer();
+                    // const dest = path.join(root, rel);
+                    // fs.writeFileSync(dest, Buffer.from(buf));
+                    // ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: rel });
+                  }
                 }
               }
             }
+        
+            initialSyncDoneRef.current[id] = true;
+        
+          } catch (e) {
+            console.error('📁 [SyncManager] 동기화 중 에러 발생:', e);
           }
-      
-          initialSyncDoneRef.current[id] = true;
-      
-        } catch (e) {
-          console.error('📁 [SyncManager] 동기화 중 에러 발생:', e);
-        }
-      };      
+        };
+        
+        doSync();
 
-      doSync();
+      }
 
       // File system watcher
       const watcher = chokidar.watch(root, {
