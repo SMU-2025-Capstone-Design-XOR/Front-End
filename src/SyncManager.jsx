@@ -440,10 +440,10 @@ const handleLocalChange = async (filePath, id, root) => {
 
       // ▶ 이 시점에 이미 서버-로컬 동기화를 마친 폴더들이므로,
       //    해당 폴더 ID들을 모두 “처음 동기화 완료”로 표시해 둔다.
-      serverFolders.forEach(folder => {
-        // folder.id 를 true로 두면, 재로그인 시에도 doSync가 스킵됨
-        initialSyncDoneRef.current[folder.id] = true;
-      });
+      // serverFolders.forEach(folder => {
+      //   // folder.id 를 true로 두면, 재로그인 시에도 doSync가 스킵됨
+      //   initialSyncDoneRef.current[folder.id] = true;
+      // });
 
       // 2) 로컬 디렉토리 scan
       const known = new Set(serverFolders.map(f => f.folderPath));
@@ -465,7 +465,7 @@ const handleLocalChange = async (filePath, id, root) => {
         for (const rel of filesToUpload) {
           await uploadFile(newId, path.join(abs, rel), rel);
         }
-        
+
         // “초기 로드 시 동기화 완료” 표시
         initialSyncDoneRef.current[newId] = true;
 
@@ -587,11 +587,9 @@ useEffect(() => {
     // Cleanup
     Object.values(watchersRef.current).forEach(w => w.close());
     Object.values(intervalsRef.current).forEach(i => clearInterval(i));
-
     watchersRef.current = {};
     intervalsRef.current = {};
     prevClientMapRef.current = {};
-    // initialSyncDoneRef.current = {};
 
     folders.forEach(folder => {
       const { id, folderPath: root } = folder;
@@ -600,11 +598,8 @@ useEffect(() => {
         return;
       }      
       prevClientMapRef.current[id] = new Map();
-      // initialSyncDoneRef.current[id] = false;
-      if (initialSyncDoneRef.current[id]) {
-        return;
-      }
-      else{
+
+      if (!initialSyncDoneRef.current[id]) {
         const doSync = async () => {
           if (initialSyncDoneRef.current[id]) {
             // 이미 한 번 doSync를 돌렸으면 스킵
@@ -747,7 +742,6 @@ useEffect(() => {
         };
         
         doSync();
-
       }
 
       // File system watcher

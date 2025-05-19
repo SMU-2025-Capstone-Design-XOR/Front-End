@@ -114,6 +114,11 @@ export default function FolderPage() {
         isDirectory: true,
       }));
 
+      // ── 디렉터리(서브폴더)들을 이름(name) 기준으로 가나다순 정렬 ──
+      dirItems.sort((a, b) => {
+        return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+      });
+
       // 파일만 필터링
       const fileItems = mapped.filter(item => {
         const rel = item.fileName;
@@ -122,6 +127,11 @@ export default function FolderPage() {
           return rel.startsWith(prefix) && !rel.slice(prefix.length).includes('/');
         }
         return !rel.includes('/');
+      });
+
+      // ── 파일들을 이름(name) 기준으로 가나다순 정렬 ──
+      fileItems.sort((a, b) => {
+        return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
       });
       
       setFileList([...dirItems, ...fileItems]);

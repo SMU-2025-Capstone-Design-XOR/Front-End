@@ -342,7 +342,27 @@ export default function Home() {
           <img src={createSync} alt=""/>
           <div className="sync-label">백업 폴더 추가</div>
         </div>
-        {syncFolders.map(folder => (
+        {
+          // 화면에 출력할 때만 가나다순으로 정렬해서 보여주도록, 원본 state는 건드리지 않는다.
+          [...syncFolders]
+            .sort((a, b) => {
+              const nameA = a.folderPath.split('/').pop().toLowerCase();
+              const nameB = b.folderPath.split('/').pop().toLowerCase();
+              return nameA.localeCompare(nameB);
+            })
+            .map(folder => (
+              <div
+                key={folder.id}
+                className="sync-wrapper"
+                onDoubleClick={() => onDoubleClick(folder)}
+                onContextMenu={showCtx(folder.id)}
+              >
+                <img src={syncIcon} alt=""/>
+                <div className="sync-label">{folder.folderPath.split('/').pop()}</div>
+              </div>
+            ))
+        }
+        {/* {syncFolders.map(folder => (
           <div
             key={folder.id}
             className="sync-wrapper"
@@ -352,7 +372,7 @@ export default function Home() {
             <img src={syncIcon} alt=""/>
             <div className="sync-label">{folder.folderPath.split('/').pop()}</div>
           </div>
-        ))}
+        ))} */}
       </div>
 
       {/* FolderContextMenu */}
