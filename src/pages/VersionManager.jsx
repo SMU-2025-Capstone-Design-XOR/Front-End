@@ -27,7 +27,6 @@ export default function VersionManager() {
   return (
     <div style={{ padding: 20 }}>
       <h2>버전 관리</h2>
-      <button onClick={() => navigate(-1)}>← 뒤로</button>
       <h3>{relativePath}</h3>
       <ul>
         {versions.map(v => (

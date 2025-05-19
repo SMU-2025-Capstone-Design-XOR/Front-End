@@ -59,7 +59,7 @@ function createUserFolder(username) {
 
 function createWindow() {
   const win = new BrowserWindow({
-    width: 1440, height: 1024,
+    width: 1240, height: 924,
     minWidth: 800, minHeight: 600,
     webPreferences: {
       nodeIntegration: true,
