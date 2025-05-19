@@ -82,6 +82,8 @@ export default function FolderPage() {
           name: f.originalName,
           isDirectory: f.type === 'folder' || rel.endsWith('/'),
           lastModified: f.lastModified,
+          // versionNumber: f.versionNumber,
+          // versionType: f.versionType,
         };
       });      
 

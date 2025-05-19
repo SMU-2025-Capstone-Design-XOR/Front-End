@@ -54,6 +54,8 @@ export default function SyncManager() {
             hash: crypto.createHash('sha256').update(buffer).digest('hex'),
             mimeType: mime.lookup(fullPath) || 'application/octet-stream',
             lastModified: new Date(stat.mtimeMs).toISOString(),
+            // versionNumber: 1, 
+            // versionType: 'SNAPSHOT',
           });
         } else if (entry.isDirectory()) {
           walk(fullPath);
@@ -103,7 +105,9 @@ export default function SyncManager() {
         size: stat.size,
         hash: crypto.createHash('sha256').update(buf).digest('hex'),
         mimeType: mime.lookup(fullPath) || 'application/octet-stream',
-        lastModified: new Date(stat.mtimeMs).toISOString()
+        lastModified: new Date(stat.mtimeMs).toISOString(),
+        // versionNumber: 1,         // 업로드 직후엔 1 또는 서버가 응답해준 값을 덮어쓰기
+        // versionType: 'SNAPSHOT',  // 또는 'DIFF'
       };
   
       const serverFiles = await getFolderFileList(id);
@@ -187,6 +191,8 @@ const handleLocalChange = async (filePath, id, root) => {
       hash: crypto.createHash('sha256').update(buf).digest('hex'),
       mimeType: mime.lookup(filePath) || 'application/octet-stream',
       lastModified: new Date(stat.mtimeMs).toISOString(),
+      // versionNumber: 1,         // 업로드 직후엔 1 또는 서버가 응답해준 값을 덮어쓰기
+      // versionType: 'SNAPSHOT',  // 또는 'DIFF'
     };
     console.log('📁 [SyncManager] 변경된 파일 메타데이터:', changedMeta);
     // 2. 서버 메타 조회
@@ -361,6 +367,8 @@ const handleLocalChange = async (filePath, id, root) => {
               hash: crypto.createHash('sha256').update(buf).digest('hex'),
               mimeType: mime.lookup(full) || 'application/octet-stream',
               lastModified: new Date(stat.mtimeMs).toISOString(),
+              // versionNumber: 1,         // 업로드 직후엔 1 또는 서버가 응답해준 값을 덮어쓰기
+              // versionType: 'SNAPSHOT',  // 또는 'DIFF'
             });
           } else if (entry.isDirectory()) {
             walk(full);
@@ -370,7 +378,7 @@ const handleLocalChange = async (filePath, id, root) => {
       walk(absPath);
   
       // 3) 메타 동기화 요청
-      const { filesToUpload = [], filesToDownload = [] } =
+      const { filesToUpload = [] } =
         await syncFolder(folderId, clientFiles, []);
   
       // 4) 서버에 업로드
@@ -408,6 +416,10 @@ const handleLocalChange = async (filePath, id, root) => {
     setFolders(prev => prev.filter(f => f.id !== id));
   }
   
+  // ── 컴포넌트 첫 렌더링 시 “initialSyncDoneRef” 한 번만 초기화 ──
+  useEffect(() => {
+    initialSyncDoneRef.current = {};
+  }, []);
 
   const autoRegisteredRef = useRef(false);
   // ── 초기 싱크폴더 로드 & 루트폴더 자동 등록 ──
@@ -425,6 +437,13 @@ const handleLocalChange = async (filePath, id, root) => {
       // 1) 서버에 올라간 폴더 목록
       const serverFolders = await getSyncFolder() || [];
       setFolders(serverFolders);
+
+      // ▶ 이 시점에 이미 서버-로컬 동기화를 마친 폴더들이므로,
+      //    해당 폴더 ID들을 모두 “처음 동기화 완료”로 표시해 둔다.
+      serverFolders.forEach(folder => {
+        // folder.id 를 true로 두면, 재로그인 시에도 doSync가 스킵됨
+        initialSyncDoneRef.current[folder.id] = true;
+      });
 
       // 2) 로컬 디렉토리 scan
       const known = new Set(serverFolders.map(f => f.folderPath));
@@ -446,6 +465,9 @@ const handleLocalChange = async (filePath, id, root) => {
         for (const rel of filesToUpload) {
           await uploadFile(newId, path.join(abs, rel), rel);
         }
+        
+        // “초기 로드 시 동기화 완료” 표시
+        initialSyncDoneRef.current[newId] = true;
 
         setFolders(prev => [...prev, created]);
         folderPathMap.current[newId] = abs;
@@ -569,7 +591,7 @@ useEffect(() => {
     watchersRef.current = {};
     intervalsRef.current = {};
     prevClientMapRef.current = {};
-    initialSyncDoneRef.current = {};
+    // initialSyncDoneRef.current = {};
 
     folders.forEach(folder => {
       const { id, folderPath: root } = folder;

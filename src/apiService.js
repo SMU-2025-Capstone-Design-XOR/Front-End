@@ -186,6 +186,8 @@ export const getFolderFileList = async (syncFolderId) => {
     .map(file => {
       const relativePath = file.relativePath || file.originalName || '';
       const segments = relativePath.split('/');
+      // const versionNumber = file.versionNumber ?? file.currentVersion ?? 1;
+      // const versionType   = file.versionType   ?? 'SNAPSHOT';
       // 폴더 경로 추출 (중간 경로를 모두 폴더로 인식)
       for (let i = 0; i < segments.length - 1; i++) {
         const folderPath = segments.slice(0, i + 1).join('/') + '/';
@@ -194,6 +196,8 @@ export const getFolderFileList = async (syncFolderId) => {
       return {
         ...file,
         type: 'file',  // 파일은 'file'로 명시
+        // versionNumber,
+        // versionType,
       };
     });
   // 폴더 경로를 배열로 변환하고, 'type' 필드 추가
@@ -275,67 +279,7 @@ export const getFileVersions = async (syncFolderId, relativePath) => {
 
 
 /**
- * 기존 파일에 대한 새 버전 업로드
- * POST /users/{userId}/sync-folders/{folderId}/files/{relativePath}/versions
- */
-export const uploadFileVersion = async (syncFolderId, localFilePath, relativePath) => {
-  const userId = getUserIdFromToken();
-  if (!userId) throw new Error('유효한 토큰이 없습니다.');
-
-  const fileBuffer = window.require('fs').readFileSync(localFilePath);
-  const fileName   = path.basename(localFilePath);
-  const mimeType   = mime.lookup(localFilePath) || 'application/octet-stream';
-  const blob       = new Blob([fileBuffer], { type: mimeType });
-
-  const formData = new FormData();
-  formData.append('file', blob, fileName);
-  formData.append('relativePath', relativePath);
-
-  const safePath = relativePath.split('/').map(encodeURIComponent).join('/');
-  const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${safePath}/versions`;
-
-  return fetchWithAuth(url, {
-    method: 'POST',
-    body: formData,
-  });
-};
-
-
-/**
- * 특정 버전의 파일 다운로드
- * GET /users/{userId}/sync-folders/{folderId}/files/{relativePath}/versions/{versionId}
- */
-export const downloadFileVersion = async (syncFolderId, relativePath, versionId) => {
-  const userId = getUserIdFromToken();
-  if (!userId) throw new Error('유효한 토큰이 없습니다.');
-
-  const safePath = relativePath.split('/').map(encodeURIComponent).join('/');
-  const encodedVersionId = encodeURIComponent(versionId);
-
-  const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${safePath}/versions/${encodedVersionId}`;
-
-  return fetchWithAuth(url, { method: 'GET' });  // 반환은 blob (파일 다운로드)
-};
-
-
-/**
- * 두 버전 간 diff 정보 조회
- * GET /users/{userId}/sync-folders/{folderId}/files/{relativePath}/versions/diff?from=...&to=...
- */
-export const getFileVersionDiff = async (syncFolderId, relativePath, fromVersionId, toVersionId) => {
-  const userId = getUserIdFromToken();
-  if (!userId) throw new Error('유효한 토큰이 없습니다.');
-
-  const safePath = relativePath.split('/').map(encodeURIComponent).join('/');
-  const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${safePath}/versions/diff` +
-              `?from=${encodeURIComponent(fromVersionId)}&to=${encodeURIComponent(toVersionId)}`;
-
-  return fetchWithAuth(url, { method: 'GET' }); // JSON으로 diff 결과
-};
-
-
-/**
- * 특정 버전으로 롤백
+ * 특정 버전으로 복원
  * POST /users/{userId}/sync-folders/{folderId}/files/{relativePath}/rollback
  * body: { versionId: "..." }
  */
@@ -352,20 +296,4 @@ export const rollbackFileVersion = async (syncFolderId, relativePath, versionId)
     body: JSON.stringify({ versionId }),
   });
 };
-
-
-/**
- * 특정 버전 삭제 (선택 사항)
- * DELETE /users/{userId}/sync-folders/{folderId}/files/{relativePath}/versions/{versionId}
- */
-// export const deleteFileVersion = async (syncFolderId, relativePath, versionId) => {
-//   const userId = getUserIdFromToken();
-//   if (!userId) throw new Error('유효한 토큰이 없습니다.');
-
-//   const safePath = relativePath.split('/').map(encodeURIComponent).join('/');
-//   const encodedVersionId = encodeURIComponent(versionId);
-//   const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${safePath}/versions/${encodedVersionId}`;
-
-//   return fetchWithAuth(url, { method: 'DELETE' });
-// };
 
