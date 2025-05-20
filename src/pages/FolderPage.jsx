@@ -55,6 +55,7 @@ export default function FolderPage() {
   const loadFiles = async (subPath = '') => {
     try {
       const files = await getFolderFileList(id);
+      console.log(files);
       const filteredFiles = files.filter(f => 
         typeof f === 'object' &&
         (f.id != null || f.originalName) &&
@@ -82,8 +83,6 @@ export default function FolderPage() {
           name: f.originalName,
           isDirectory: f.type === 'folder' || rel.endsWith('/'),
           lastModified: f.lastModified,
-          // versionNumber: f.versionNumber,
-          // versionType: f.versionType,
         };
       });      
 

@@ -159,8 +159,6 @@ export default function Home() {
                 hash: hash,
                 mimeType: mimeType,
                 lastModified: new Date(stat.mtimeMs).toISOString(),
-                // versionNumber: 1,
-                // versionType: 'SNAPSHOT',
               });
             } else if (entry.isDirectory()) {
               walk(fullPath); // 하위 폴더 재귀 탐색

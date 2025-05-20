@@ -265,35 +265,56 @@ export const deleteFolderFile = async (syncFolderId, fileId) => {
 
 /**
  * 특정 파일의 버전 목록 조회
- * GET /users/{userId}/sync-folders/{folderId}/files/{relativePath}/versions
+ * GET /users/{userId}/sync-folders/{folderId}/files/{fileId}/versions
+ *
+ * @param {string|number} syncFolderId - 싱크 폴더 ID
+ * @param {string|number} fileId - 파일의 고유 ID
+ * @returns {Promise<Array>} - 버전 정보 배열
  */
-export const getFileVersions = async (syncFolderId, relativePath) => {
+export const getFileVersions = async (syncFolderId, fileId) => {
   const userId = getUserIdFromToken();
   if (!userId) throw new Error('유효한 토큰이 없습니다.');
 
-  const safePath = relativePath.split('/').map(encodeURIComponent).join('/');
-  const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${safePath}/versions`;
+  const encodedFileId = encodeURIComponent(fileId);
+  const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${encodedFileId}/versions`;
 
   return fetchWithAuth(url, { method: 'GET' });
 };
 
 
 /**
- * 특정 버전으로 복원
- * POST /users/{userId}/sync-folders/{folderId}/files/{relativePath}/rollback
- * body: { versionId: "..." }
+ * 특정 버전 복원 (다운로드)
+ * GET /users/{userId}/sync-folders/{folderId}/files/{fileId}/{version}
+ *
+ * @param {string|number} syncFolderId - 싱크 폴더 ID
+ * @param {string|number} fileId - 파일 고유 ID
+ * @param {string|number} versionNumber - 복원할 버전 번호
+ * @returns {Promise<{ blob: Blob, filename: string, mimeType: string }>}
  */
-export const rollbackFileVersion = async (syncFolderId, relativePath, versionId) => {
+export const downloadFileVersion = async (syncFolderId, fileId, versionNumber) => {
   const userId = getUserIdFromToken();
   if (!userId) throw new Error('유효한 토큰이 없습니다.');
 
-  const safePath = relativePath.split('/').map(encodeURIComponent).join('/');
-  const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${safePath}/rollback`;
+  const encodedFileId = encodeURIComponent(fileId);
+  const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${encodedFileId}/${versionNumber}`;
 
-  return fetchWithAuth(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ versionId }),
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${localStorage.getItem('token')}`
+    }
   });
-};
 
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`HTTP ${res.status}: ${text}`);
+  }
+
+  const contentDisposition = res.headers.get('Content-Disposition') || '';
+  const contentType = res.headers.get('Content-Type') || 'application/octet-stream';
+  const filenameMatch = contentDisposition.match(/filename="(.+?)"/);
+  const filename = filenameMatch ? filenameMatch[1] : `version-${versionNumber}`;
+  const blob = await res.blob();
+
+  return { blob, filename, mimeType: contentType };
+};

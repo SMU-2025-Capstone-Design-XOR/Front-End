@@ -1,0 +1,124 @@
+/* version.css */
+
+/* styleguide.css에서 가져온 전역 변수들 */
+:root {
+    --base-spacing-corner-radius-gap-spacing-12: 12px;
+    --base-spacing-corner-radius-gap-spacing-8: 8px;
+    --base-spacing-gap-gap-8: 8px;
+    --base-spacing-icon-size-icon-size-16: 16px;
+    --base-spacing-padding-spacing-0: 0px;
+    --base-spacing-radius-radius-8: 8px;
+  }
+  
+  /* Version 전체 컨테이너 */
+  .version {
+    background-color: #ffffffcc;
+    height: auto; /* 동적으로 늘어나도록 auto로 변경 */
+    min-height: 500px;
+    position: relative;
+    width: 650px;
+    padding-bottom: 20px; /* 아래 간격 확보 */
+  }
+  
+  /* 상단 "Version Manager" 버튼 */
+  .version .vertitle {
+    background-color: #111111c4 !important;
+    color: #ffffff !important;
+    height: 65px !important;
+    left: 75px !important;
+    position: absolute !important;
+    top: 25px !important;
+    width: 500px !important;
+    border: none;
+    cursor: pointer;
+  }
+  
+  /* Button 내부 텍스트(폰트 스타일) */
+  .version .design-component-instance-node {
+    font-family: "Poppins-SemiBold", Helvetica !important;
+    font-size: 38px !important;
+    font-weight: 600 !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+  }
+  
+  /* Button 프레임(포지셔닝) */
+  .version .button-instance {
+    left: 84px !important;
+    top: 4px !important;
+    position: relative;
+    width: 432px; /* 500px - 좌우 여백 (84px씩) */
+    height: 57px; /* 65px 버튼 높이에서 텍스트 패딩 고려 */
+  }
+  
+  /* 각 버전 항목 컨테이너 */
+  .version .versionmap {
+    background-color: #111111c4;
+    border-radius: 12px;
+    height: 45px;
+    left: 75px;
+    overflow: hidden;
+    position: relative;
+    top: 120px; /* 첫 번째 아이템 위치 */
+    width: 500px;
+    margin-top: 20px; /* 아래 아이템 간 간격 */
+  }
+  
+  /* 버전 텍스트 래퍼 */
+  .version .div {
+    align-items: center;
+    display: inline-flex;
+    gap: 8px;
+    justify-content: center;
+    left: 60px;
+    position: absolute;
+    top: 2px;
+  }
+  
+  /* 버전 레이블 텍스트 */
+  .version .text-wrapper {
+    color: #ffffff;
+    font-family: "Poppins-SemiBold", Helvetica;
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: 0;
+    line-height: normal;
+    position: relative;
+    text-align: center;
+    width: fit-content;
+  }
+  
+  /* 복원 버튼 컨테이너 */
+  .version .restore {
+    align-items: center;
+    background-color: #f1f1f1;
+    border-radius: 15px;
+    display: flex;
+    gap: var(--base-spacing-gap-gap-8);
+    height: 28px;
+    justify-content: center;
+    left: 345px;
+    padding: var(--base-spacing-corner-radius-gap-spacing-8)
+      var(--base-spacing-corner-radius-gap-spacing-12);
+    position: absolute;
+    top: 8px;
+    width: 90px;
+    cursor: pointer;
+  }
+  
+  /* 복원 버튼 텍스트 */
+  .version .label-text {
+    color: #292929;
+    font-family: "Inter-Bold", Helvetica;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0;
+    line-height: 20px;
+    position: relative;
+    text-align: center;
+    white-space: nowrap;
+    width: fit-content;
+  }
+  
