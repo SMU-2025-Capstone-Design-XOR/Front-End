@@ -78,7 +78,7 @@ function createWindow() {
 
 
 // ▶️ 새로 추가: 버전 관리용 윈도우 생성 함수
-function createVersionWindow(folderId, relativePath) {
+function createVersionWindow(folderId, fileId, relativePath) {
   const win = new BrowserWindow({
     width: 750, height: 500,
     webPreferences: {
@@ -107,8 +107,8 @@ app.whenReady().then(() => {
   });
 
   // ▶️ 버전관리 페이지 관련 핸들러 추가
-  ipcMain.on('open-version-window', (_e, { folderId, relativePath }) => {
-    createVersionWindow(folderId, relativePath);
+  ipcMain.on('open-version-window', (_e, { folderId, fileId, relativePath }) => {
+    createVersionWindow(folderId, fileId, relativePath);
   });
 
 

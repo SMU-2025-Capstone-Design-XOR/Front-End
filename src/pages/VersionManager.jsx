@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { dialog } from '@electron/remote';
+import { getCurrentWindow } from '@electron/remote';
 import fs from 'fs';
 import path from 'path';
 import { ReButton } from '../components/ReButton';
@@ -65,7 +66,7 @@ export default function VersionManager() {
   return (
     <div className="version-manager" style={{ padding: 20 }}>
       <header style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-      <button onClick={() => navigate(-1)}>Back</button>
+      <button onClick={() => getCurrentWindow().close()}>Back</button>
       <h2 style={{ margin: 0 }}>버전 관리</h2>
       </header>
       <h3>{relativePath}</h3>

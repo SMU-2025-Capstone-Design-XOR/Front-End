@@ -36,7 +36,7 @@
 # 로컬에서 메인폴더 추가시(Finder에서 복사 -> 붙여넣기) 서버로 해당 메인폴더의 정보를 보내서 저장시킴 -> 로직 에러로 인한 중단 (25.05.15)
 # 첫 로그인 시 폴더 전체 스캔 후 로컬에만 있는 폴더 서버로 다운 (25.05.17)
 # 클라이언트 실행 중 로컬에서 메인폴더 추가시 서버로 전송하는 로직 완전 구현 (25.05.19)
-
+# 버전관리목록 + 복원기능 구현 (25.05.20)
 
 
 
@@ -47,3 +47,4 @@
 # Home && FolderPage -> User Context Menu - Figma to React를 통한 UI 구현 (25.04.28)
 # FolderPage - Figma to React를 통한 UI 구현, Home에서 사용했던 UI 코드 재사용 (25.05.12)
 # FolderPage - File Context Menu - Figma to React를 통한 UI 구현 (25.05.16)
+<!-- # VersionManager -> Figma to React를 통한 UI 구현. -->
