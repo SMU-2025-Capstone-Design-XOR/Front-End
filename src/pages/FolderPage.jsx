@@ -424,11 +424,19 @@ const handlefoldDelete = async () => {
   // 파일 메뉴 핸들러
   // const handleFileShare    = () => alert(`’${fileMenu.item.name}‘ 공유…`);
   const handleFileVersion  = () => {
-    const { fileName } = fileMenu.item;
-    ipcRenderer.send('open-version-window', {
-      folderId: Number(id),
-      relativePath: fileName
-    });
+    const { fileId, fileName } = fileMenu.item;
+    // ipcRenderer.send('open-version-window', {
+    //   folderId: Number(id),
+    //   fileId,
+    //   // fileId:    fileMenu.item.id,
+    //   relativePath: fileName
+    // });
+    navigate(
+      `/version` +
+      `?folderId=${id}` +
+      `&fileId=${fileId}` +
+      `&relativePath=${encodeURIComponent(fileName)}`
+    );
     closeFileMenu();
   };
   const handleFileInfo     = () => handleInfo(fileMenu.item.fileName);

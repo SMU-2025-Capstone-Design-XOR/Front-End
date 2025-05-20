@@ -88,7 +88,10 @@ function createVersionWindow(folderId, relativePath) {
   });
   remoteMain.enable(win.webContents);
   // React 라우터에서 /version?folderId=…&relativePath=… 경로를 잡아주게끔
-  const url = `file://${path.join(__dirname, 'index.html')}#/version?folderId=${folderId}&relativePath=${encodeURIComponent(relativePath)}`;
+  const url = `file://${path.join(__dirname, 'index.html')}#/version` +
+              `?folderId=${folderId}` +
+              `&fileId=${fileId}` +
+              `&relativePath=${encodeURIComponent(relativePath)}`;
   win.loadURL(url);
 }
 

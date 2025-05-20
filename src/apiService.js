@@ -253,30 +253,20 @@ export const deleteFolderFile = async (syncFolderId, fileId) => {
 };
 
 
-
-
-
-
-
-
-
-// 일단 아직 확정은 아닌 api 코드, 그러나 양식을 다 만들어놨어요. 준비합니다.
-
-
 /**
  * 특정 파일의 버전 목록 조회
  * GET /users/{userId}/sync-folders/{folderId}/files/{fileId}/versions
  *
  * @param {string|number} syncFolderId - 싱크 폴더 ID
- * @param {string|number} fileId - 파일의 고유 ID
- * @returns {Promise<Array>} - 버전 정보 배열
+ * @param {string|number} fileId       - 파일 고유 ID
+ * @returns {Promise<Array<VersionDTO>>} - VersionDTO 배열
  */
 export const getFileVersions = async (syncFolderId, fileId) => {
   const userId = getUserIdFromToken();
   if (!userId) throw new Error('유효한 토큰이 없습니다.');
 
-  const encodedFileId = encodeURIComponent(fileId);
-  const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${encodedFileId}/versions`;
+  const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}` +
+              `/files/${encodeURIComponent(fileId)}/versions`;
 
   return fetchWithAuth(url, { method: 'GET' });
 };
@@ -286,17 +276,17 @@ export const getFileVersions = async (syncFolderId, fileId) => {
  * 특정 버전 복원 (다운로드)
  * GET /users/{userId}/sync-folders/{folderId}/files/{fileId}/{version}
  *
- * @param {string|number} syncFolderId - 싱크 폴더 ID
- * @param {string|number} fileId - 파일 고유 ID
- * @param {string|number} versionNumber - 복원할 버전 번호
+ * @param {string|number} syncFolderId   - 싱크 폴더 ID
+ * @param {string|number} fileId         - 파일 고유 ID
+ * @param {string|number} versionNumber  - 복원할 버전 번호
  * @returns {Promise<{ blob: Blob, filename: string, mimeType: string }>}
  */
 export const downloadFileVersion = async (syncFolderId, fileId, versionNumber) => {
   const userId = getUserIdFromToken();
   if (!userId) throw new Error('유효한 토큰이 없습니다.');
 
-  const encodedFileId = encodeURIComponent(fileId);
-  const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${encodedFileId}/${versionNumber}`;
+  const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}` +
+              `/files/${encodeURIComponent(fileId)}/${encodeURIComponent(versionNumber)}`;
 
   const res = await fetch(url, {
     method: 'GET',
@@ -310,11 +300,15 @@ export const downloadFileVersion = async (syncFolderId, fileId, versionNumber) =
     throw new Error(`HTTP ${res.status}: ${text}`);
   }
 
-  const contentDisposition = res.headers.get('Content-Disposition') || '';
-  const contentType = res.headers.get('Content-Type') || 'application/octet-stream';
-  const filenameMatch = contentDisposition.match(/filename="(.+?)"/);
-  const filename = filenameMatch ? filenameMatch[1] : `version-${versionNumber}`;
+  // 헤더에서 파일명 추출
+  const contentDisposition = res.headers.get('content-disposition') || '';
+  const filenameMatch = contentDisposition.match(/filename\*?=.*(?:''|")?(.+?)(?:;|$)/i);
+  const filename = filenameMatch
+    ? decodeURIComponent(filenameMatch[1])
+    : `version-${versionNumber}`;
+
+  const mimeType = res.headers.get('content-type') || 'application/octet-stream';
   const blob = await res.blob();
 
-  return { blob, filename, mimeType: contentType };
+  return { blob, filename, mimeType };
 };
