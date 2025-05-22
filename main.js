@@ -103,7 +103,11 @@ app.whenReady().then(() => {
 
   // IPC: 사용자 폴더 생성 요청 처리
   ipcMain.handle('init-user-folder', (event, username) => {
-    return createUserFolder(username);
+    const result = createUserFolder(username);
+    if (!result) {
+      throw new Error('사용자 폴더 생성 실패: 권한 부족 또는 디스크 오류');
+    }
+    return result;
   });
 
   // ▶️ 버전관리 페이지 관련 핸들러 추가
@@ -144,13 +148,6 @@ ipcMain.handle('get-client-map', (event, folderId) => {
   return global.clientMapStore[folderId] ?? {};
 });
 
-// 폴더 선택 IPC
-// ipcMain.handle('open-folder-dialog', async () => {
-//   const { canceled, filePaths } = await dialog.showOpenDialog({
-//     properties: ['openDirectory']
-//   });
-//   return canceled ? null : filePaths[0];
-// });
 
 app.on('window-all-closed', () => {
   // macOS 외 모든 플랫폼에서 앱 종료 :contentReference[oaicite:1]{index=1}

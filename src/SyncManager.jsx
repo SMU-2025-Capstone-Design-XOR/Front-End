@@ -9,8 +9,14 @@ const { ipcRenderer } = window.require('electron');
 const fs   = window.require('fs');
 const path = window.require('path');
 
-// 로그인 시 localStorage에 저장된 계정 폴더 경로
-const userDir = localStorage.getItem('userDir');
+// 로그인 시 localStorage에 저장된 username
+const xorUser = localStorage.getItem('xorUser');
+// 실제 동기화 루트
+const userDir = xorUser
+  ? path.join(os.homedir(), 'XOR', xorUser)
+  : null;
+
+// const userDir = localStorage.getItem('userDir');
 
 
 import {
@@ -95,7 +101,8 @@ export default function SyncManager() {
       // 서브폴더 내 파일이 다운로드가 되지 않는 상황이기에 주석처리함.(빈 화면 방지)
       // const localFiles = buildClientFiles(root);
       // const localPaths = new Set(localFiles.map(f => f.relativePath));
-      console.log(`📂 [handleLocalAdd] 파일 추가됨: ${rel}`);
+      
+      // console.log(`📂 [handleLocalAdd] 파일 추가됨: ${rel}`);
   
       const stat = fs.statSync(fullPath);
       const buf = fs.readFileSync(fullPath);
@@ -179,7 +186,7 @@ export default function SyncManager() {
 const handleLocalChange = async (filePath, id, root) => {
   try {
     const rel = path.relative(root, filePath).replace(/\\/g, '/').trim() || path.basename(filePath);
-    console.log(`📁 [handleLocalChange] 시작 → ${rel}`);
+    // console.log(`📁 [handleLocalChange] 시작 → ${rel}`);
 
     // 1. 변경된 메타 계산
     const stat = fs.statSync(filePath);
