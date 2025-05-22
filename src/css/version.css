@@ -1,4 +1,4 @@
-/* version.css */
+/* src/css/version.css */
 
 /* styleguide.css에서 가져온 전역 변수들 */
 :root {
@@ -10,17 +10,17 @@
     --base-spacing-radius-radius-8: 8px;
   }
   
-  /* Version 전체 컨테이너 */
+  /* ------------------ Version 전체 컨테이너 ------------------ */
   .version {
-    background-color: #ffffffcc;
-    height: auto; /* 동적으로 늘어나도록 auto로 변경 */
-    min-height: 500px;
+    background-color: #ffffffe0;
+    height: auto;       /* 내용에 따라 유동적으로 늘어나도록 */
+    min-height: 500px;  /* 최소 높이 보장 */
     position: relative;
     width: 650px;
-    padding-bottom: 20px; /* 아래 간격 확보 */
+    padding-bottom: 20px; /* 아래 여유 공간 확보 */
   }
   
-  /* 상단 "Version Manager" 버튼 */
+  /* ------------------ 상단 "Version Manager" 버튼 ------------------ */
   .version .vertitle {
     background-color: #111111c4 !important;
     color: #ffffff !important;
@@ -33,7 +33,7 @@
     cursor: pointer;
   }
   
-  /* Button 내부 텍스트(폰트 스타일) */
+  /* ------------------ Button 내부 텍스트 (폰트 스타일) ------------------ */
   .version .design-component-instance-node {
     font-family: "Poppins-SemiBold", Helvetica !important;
     font-size: 38px !important;
@@ -44,72 +44,38 @@
     height: 100%;
   }
   
-  /* Button 프레임(포지셔닝) */
+  /* ------------------ Button 프레임 (텍스트 위치 조정) ------------------ */
   .version .button-instance {
     left: 84px !important;
     top: 4px !important;
     position: relative;
-    width: 432px; /* 500px - 좌우 여백 (84px씩) */
-    height: 57px; /* 65px 버튼 높이에서 텍스트 패딩 고려 */
+    width: 432px; /* 500px 버튼 너비 – 좌우 여백(84px씩) */
+    height: 57px; /* 65px 버튼 높이에서 내부 패딩 고려 */
   }
   
-  /* 각 버전 항목 컨테이너 */
-  .version .versionmap {
-    background-color: #111111c4;
-    border-radius: 12px;
-    height: 45px;
-    left: 75px;
-    overflow: hidden;
-    position: relative;
-    top: 120px; /* 첫 번째 아이템 위치 */
-    width: 500px;
-    margin-top: 20px; /* 아래 아이템 간 간격 */
-  }
-  
-  /* 버전 텍스트 래퍼 */
-  .version .div {
-    align-items: center;
-    display: inline-flex;
-    gap: 8px;
-    justify-content: center;
-    left: 60px;
-    position: absolute;
-    top: 2px;
-  }
-  
-  /* 버전 레이블 텍스트 */
-  .version .text-wrapper {
-    color: #ffffff;
-    font-family: "Poppins-SemiBold", Helvetica;
-    font-size: 28px;
-    font-weight: 600;
-    letter-spacing: 0;
-    line-height: normal;
-    position: relative;
-    text-align: center;
-    width: fit-content;
-  }
-  
-  /* 복원 버튼 컨테이너 */
-  .version .restore {
+  /* ------------------ 파일 이름 표시 (상단 File 레이블) ------------------ */
+  .version .filen {
     align-items: center;
     background-color: #f1f1f1;
-    border-radius: 15px;
-    display: flex;
+    border-radius: 16px;
+    /* display: flex; */
+    display: inline-block;
     gap: var(--base-spacing-gap-gap-8);
-    height: 28px;
     justify-content: center;
-    left: 345px;
-    padding: var(--base-spacing-corner-radius-gap-spacing-8)
+    left: 85px;
+    padding:
+      var(--base-spacing-corner-radius-gap-spacing-8)
       var(--base-spacing-corner-radius-gap-spacing-12);
     position: absolute;
-    top: 8px;
-    width: 90px;
-    cursor: pointer;
+    top: 80px;
+    padding:
+    var(--base-spacing-corner-radius-gap-spacing-8)
+    var(--base-spacing-corner-radius-gap-spacing-12);
+    box-sizing: border-box;
   }
   
-  /* 복원 버튼 텍스트 */
-  .version .label-text {
+  /* File 레이블 텍스트 */
+  .version .label-text-2 {
     color: #292929;
     font-family: "Inter-Bold", Helvetica;
     font-size: 18px;
@@ -120,5 +86,88 @@
     text-align: center;
     white-space: nowrap;
     width: fit-content;
+    padding: 5px;
+  }
+  
+  /* ------------------ 각 버전 항목 컨테이너 ------------------ */
+  /* .versionmap은 반복 렌더링 시 top 위치만 style로 바인딩할 예정입니다. */
+  .version .versionmap {
+    background-color: #111111c4;
+    border-radius: 12px;
+    height: auto;
+    min-height: 45px;
+    left: 85px;
+    position: absolute;
+    top: 90px;         /* 첫 번째 버전 아이템 위치 기준 */
+    width: 500px;
+    /* overflow-x: hidden;  또는 overflow: hidden */
+
+    /* flex 로 내부 텍스트/버튼 정렬 */
+    display: flex;
+    align-items: center;           /* 수직 중앙 정렬 */
+    justify-content: space-between;/* 좌측 텍스트, 우측 버튼 간격 확보 */
+
+    padding: 10px 16px; /* 좌우 여유 공간 */
+    box-sizing: border-box;    
+    /* margin-top: 20px;   다음 항목과의 간격 (style.top 을 쓰면 생략 가능) */
+  }
+  
+  /* 버전 텍스트 래퍼 */
+  .version .div {
+    align-items: center;
+    flex:1;
+    display:flex;
+    padding-left: 70px;
+  }
+  
+  /* 버전 레이블 텍스트 */
+  .version .text-wrapper {
+    color: #ffffff;
+    font-family: "Poppins-SemiBold", Helvetica;
+    font-size: 23px;
+    font-weight: 600;
+    line-height: 1;
+    position:static;
+    margin: 0;
+    max-width: 100%;
+  }
+  
+  /* ------------------ 복원 버튼 컨테이너 ------------------ */
+  .version .restore {
+    align-items: center;
+    background-color: #f1f1f1;
+    border-radius: 15px;
+    display: flex;
+    gap: var(--base-spacing-gap-gap-8);
+    height: 32px;
+    justify-content: center;
+    padding:
+      var(--base-spacing-corner-radius-gap-spacing-8)
+      var(--base-spacing-corner-radius-gap-spacing-12);
+
+    /* position: relative; */
+    position: static;
+    cursor: pointer;
+  }
+  
+  /* 복원 버튼 텍스트 */
+  .version .label-text {
+    color: #292929;
+    font-family: "Inter-Bold", Helvetica;
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1;
+    text-align: center;
+    white-space: nowrap;
+    width: fit-content;
+  }
+  
+  /* ------------------ 뒤로가기 아이콘 ------------------ */
+  .version .back {
+    height: 60px;
+    left: 7px;
+    position: absolute;
+    top: 27px;
+    width: 60px;
   }
   

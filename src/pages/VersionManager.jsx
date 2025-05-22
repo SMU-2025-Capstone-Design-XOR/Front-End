@@ -1,11 +1,12 @@
 // src/pages/VersionManager.jsx
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { dialog } from '@electron/remote';
 import { getCurrentWindow } from '@electron/remote';
 import fs from 'fs';
 import path from 'path';
 import { ReButton } from '../components/ReButton';
+import { VersionItem } from "../components/VersionItem";
+import back from "../assets/Version/back.svg";
 import '../css/version.css';
 
 import {
@@ -63,31 +64,64 @@ export default function VersionManager() {
     }
   };
 
-  return (
-    <div className="version-manager" style={{ padding: 20 }}>
-      <header style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-      <button onClick={() => getCurrentWindow().close()}>Back</button>
-      <h2 style={{ margin: 0 }}>버전 관리</h2>
-      </header>
-      <h3>{relativePath}</h3>
-      {loading && <p>로딩 중...</p>}
-      {error && <p className="error">{error}</p>}
-      {!loading && !error && (
-        <ul className="version-list">
-          {versions.map(v => (
-            <li key={v.versionId} className="version-item">
-              <div className="version-info">
-                <span className="version-label">v{v.versionNumber} ({v.versionType})</span>
-                <span className="version-date">{new Date(v.createdDate).toLocaleString()}</span>
-              </div>
-              <button className="restore-button" onClick={() => handleRestore(v.versionNumber)}>
-                복원
-              </button>
-            </li>
-          ))}
-          {versions.length === 0 && <li>버전이 없습니다.</li>}
-        </ul>
+return (
+    <div className="version">
+      {/* 상단 헤더: 뒤로가기 + 타이틀 */}
+      <ReButton
+        className="vertitle"
+        frameClassName="button-instance"
+        text="Version Manager"
+        // onClick={() => getCurrentWindow().close()}
+      />
+      <img
+        className="back"
+        alt="Back"
+        src={back}
+        onClick={() => getCurrentWindow().close()}
+      />
+
+      {/* 파일 이름 레이블 */}
+      <div className="filen">
+        <div className="label-text-2">{relativePath ? path.basename(relativePath) : "파일명 없음"}</div>
+      </div>
+
+      {/* 로딩/에러 표시 */}
+      {loading && (
+        <div style={{ position: "absolute", top: 160, left: 75, color: "#555" }}>
+          로딩 중...
+        </div>
       )}
+      {error && (
+        <div style={{ position: "absolute", top: 160, left: 75, color: "red" }}>
+          {error}
+        </div>
+      )}
+
+      {/* 버전 목록 */}
+      {!loading &&
+        !error &&
+        (versions.length > 0 ? (
+          versions.map((v, idx) => {
+            // const label = `v${v.versionNumber} (${v.versionType})`;
+            const label = `Version ${v.versionNumber} File`;
+            // 첫 번째 아이템 top 148px, 다음은 148 + 60 * idx
+            const topPos = 148 + idx * 70;
+            return (
+              <VersionItem
+                key={v.versionId}
+                label={label}
+                top={topPos}
+                onRestore={() => handleRestore(v.versionNumber)}
+              />
+            );
+          })
+        ) : (
+          <div
+            style={{ position: "absolute", top: 148, left: 75, color: "#555" }}
+          >
+            버전이 없습니다.
+          </div>
+        ))}
     </div>
   );
 }
