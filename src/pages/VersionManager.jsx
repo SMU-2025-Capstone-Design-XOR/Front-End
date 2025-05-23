@@ -4,8 +4,11 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { getCurrentWindow } from '@electron/remote';
 import fs from 'fs';
 import path from 'path';
+import { getVersionNote, setVersionNote } from '../utils/versionNoteStore';
+
 import { ReButton } from '../components/ReButton';
 import { VersionItem } from "../components/VersionItem";
+import VersionContext from '../components/VersionContext';
 import back from "../assets/Version/back.svg";
 import '../css/version.css';
 
@@ -16,7 +19,6 @@ import {
 
 export default function VersionManager() {
   const { search } = useLocation();
-  const navigate = useNavigate();
   const params = new URLSearchParams(search);
   const folderId     = params.get('folderId');
   const fileId = params.get('fileId');
@@ -26,6 +28,11 @@ export default function VersionManager() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  // Context menu state
+  const [ctxVisible, setCtxVisible] = useState(false);
+  const [ctxX, setCtxX] = useState(0);
+  const [ctxY, setCtxY] = useState(0);
+  const [selectedVersion, setSelectedVersion] = useState(null);
 
   useEffect(() => {
     if (!folderId || !fileId) {
@@ -63,6 +70,35 @@ export default function VersionManager() {
       alert('복원 중 오류가 발생했습니다: ' + err.message);
     }
   };
+
+  const handleContextMenu = (event, version) => {
+    event.preventDefault();
+    setSelectedVersion(version);
+    setCtxX(event.clientX);
+    setCtxY(event.clientY);
+    setCtxVisible(true);
+  };
+
+  const handleCloseContext = () => {
+    setCtxVisible(false);
+    setSelectedVersion(null);
+  };
+
+  const handleEdit = async () => {
+    if (!selectedVersion) return;
+    const oldNote = getVersionNote(fileId, selectedVersion.versionNumber);
+    const newNote = window.prompt(
+      `V${selectedVersion.versionNumber}의 설명을 입력하세요:`,
+      oldNote || ''
+    );
+    if (newNote !== null) {
+      setVersionNote(fileId, selectedVersion.versionNumber, newNote);
+      setVersions([...versions]); // 리렌더 트리거용
+    }
+    handleCloseContext();
+  };
+  
+
 
 return (
     <div className="version">
@@ -102,17 +138,23 @@ return (
         !error &&
         (versions.length > 0 ? (
           versions.map((v, idx) => {
-            // const label = `v${v.versionNumber} (${v.versionType})`;
-            const label = `Version ${v.versionNumber} File`;
+            // const label = `Version ${v.versionNumber} File`;
+            const customLabel = getVersionNote(fileId, v.versionNumber);
+            const label = `V${v.versionNumber} ${customLabel || 'File'}`;
             // 첫 번째 아이템 top 148px, 다음은 148 + 60 * idx
             const topPos = 148 + idx * 70;
-            return (
-              <VersionItem
-                key={v.versionId}
-                label={label}
-                top={topPos}
-                onRestore={() => handleRestore(v.versionNumber)}
-              />
+            return (                
+            <div
+            key={v.versionId}
+            style={{ position: 'absolute', top: topPos}}
+            onContextMenu={e => handleContextMenu(e, v)}
+          >
+            <VersionItem
+              label={label}
+              top={0}
+              onRestore={() => handleRestore(v.versionNumber)}
+            />
+          </div>            
             );
           })
         ) : (
@@ -122,6 +164,13 @@ return (
             버전이 없습니다.
           </div>
         ))}
+      <VersionContext
+        x={ctxX}
+        y={ctxY}
+        visible={ctxVisible}
+        onClose={handleCloseContext}
+        onEdit={handleEdit}
+      />
     </div>
   );
 }

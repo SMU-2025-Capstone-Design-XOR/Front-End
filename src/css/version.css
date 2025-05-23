@@ -117,14 +117,14 @@
     align-items: center;
     flex:1;
     display:flex;
-    padding-left: 70px;
+    padding-left: 95px;
   }
   
   /* 버전 레이블 텍스트 */
   .version .text-wrapper {
     color: #ffffff;
     font-family: "Poppins-SemiBold", Helvetica;
-    font-size: 23px;
+    font-size: 21px;
     font-weight: 600;
     line-height: 1;
     position:static;
