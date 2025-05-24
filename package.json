@@ -58,6 +58,7 @@
     "@electron/remote": "^2.1.2",
     "chokidar": "^4.0.3",
     "diff": "^7.0.0",
+    "electron-store": "^10.0.1",
     "flatted": "^3.3.3",
     "mime-types": "^3.0.1",
     "prop-types": "^15.8.1",

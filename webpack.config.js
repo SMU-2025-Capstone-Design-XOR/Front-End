@@ -16,17 +16,18 @@ module.exports = {
       '@': path.resolve(__dirname, 'src'),
       '@assets': path.resolve(__dirname, 'src/assets')
     },
-    fallback: {
-      fs: false,
-      path: false
-    }
+    // fallback: {
+    //   fs: false,
+    //   path: false
+    // }
   },
 
   externals: {
     fs: 'commonjs fs',
     path: 'commonjs path',
     electron: 'commonjs electron',
-    '@electron/remote': 'commonjs @electron/remote'
+    '@electron/remote': 'commonjs @electron/remote',
+    'electron-store': 'commonjs electron-store',
   },
 
   devtool: 'source-map',

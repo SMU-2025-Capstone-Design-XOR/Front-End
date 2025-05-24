@@ -8,6 +8,11 @@ const os = require('os');
 
 remoteMain.initialize();
 
+const storeModule = require('electron-store');
+// interop guard: default 프로퍼티가 있으면 그걸, 아니면 모듈 자체를 Store로
+const Store = storeModule.default || storeModule;
+// const Store = require('electron-store').default;
+const noteStore = new Store({ name: 'version-notes' })
 // 1. clientMapStore 초기화
 global.clientMapStore = {};  // 폴더 ID -> 파일 목록 매핑
 
@@ -147,6 +152,17 @@ ipcMain.handle('set-client-map', (event, { folderId, fileMap }) => {
 ipcMain.handle('get-client-map', (event, folderId) => {
   return global.clientMapStore[folderId] ?? {};
 });
+
+// 버전 정보 관련 IPC 핸들러
+ipcMain.handle('get-version-note', (_e, { fileId, version }) => {
+  const key = `${fileId}-v${version}`
+  return noteStore.get(key, '')
+})
+ipcMain.handle('set-version-note', (_e, { fileId, version, note }) => {
+  const key = `${fileId}-v${version}`
+  noteStore.set(key, note)
+  return true
+})
 
 
 app.on('window-all-closed', () => {
