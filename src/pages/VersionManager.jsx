@@ -2,7 +2,6 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { getCurrentWindow } from '@electron/remote';
-import fs from 'fs';
 import path from 'path';
 import { getVersionNote, setVersionNote } from '../utils/versionNoteStore';
 
@@ -28,11 +27,18 @@ export default function VersionManager() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  const [versionNotes, setVersionNotes] = useState({});
+
   // Context menu state
   const [ctxVisible, setCtxVisible] = useState(false);
   const [ctxX, setCtxX] = useState(0);
   const [ctxY, setCtxY] = useState(0);
   const [selectedVersion, setSelectedVersion] = useState(null);
+  
+
+  // Edit modal state
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [noteInput, setNoteInput] = useState('');
 
   useEffect(() => {
     if (!folderId || !fileId) {
@@ -52,6 +58,20 @@ export default function VersionManager() {
       });
   }, [folderId, fileId]);
 
+  // Load notes map whenever versions change
+  useEffect(() => {
+    async function loadNotes() {
+      const notes = {};
+      await Promise.all(
+        versions.map(async v => {
+          const note = await getVersionNote(folderId, v.versionNumber);
+          notes[v.versionNumber] = note || '';
+        })
+      );
+      setVersionNotes(notes);
+    }
+    if (versions.length) loadNotes();
+  }, [versions, folderId]);
 
   const handleRestore = async (versionNumber) => {
     try {
@@ -79,24 +99,30 @@ export default function VersionManager() {
     setCtxVisible(true);
   };
 
-  const handleCloseContext = () => {
-    setCtxVisible(false);
-    setSelectedVersion(null);
-  };
+//   const handleCloseContext = () => {
+//     setCtxVisible(false);
+//     setSelectedVersion(null);
+//   };
 
-  const handleEdit = async () => {
+const handleEdit = async () => {
     if (!selectedVersion) return;
-    const oldNote = getVersionNote(fileId, selectedVersion.versionNumber);
-    const newNote = window.prompt(
-      `V${selectedVersion.versionNumber}의 설명을 입력하세요:`,
-      oldNote || ''
-    );
-    if (newNote !== null) {
-      setVersionNote(fileId, selectedVersion.versionNumber, newNote);
-      setVersions([...versions]); // 리렌더 트리거용
-    }
-    handleCloseContext();
-  };
+    const oldNote = await getVersionNote(folderId, selectedVersion.versionNumber);
+    setNoteInput(oldNote || '');
+    setEditModalVisible(true);
+    setCtxVisible(false);
+};
+
+const saveEdit = async () => {
+    if (!selectedVersion) return;
+    await setVersionNote(folderId, selectedVersion.versionNumber, noteInput);
+    // setVersions(vs => [...vs]);
+    setVersionNotes(prev => ({
+        ...prev,
+        [selectedVersion.versionNumber]: noteInput
+      }));
+    setEditModalVisible(false);
+    setSelectedVersion(null);
+};
   
 
 
@@ -137,15 +163,15 @@ return (
       {!loading &&
         !error &&
         (versions.length > 0 ? (
-          versions.map((v, idx) => {
-            // const label = `Version ${v.versionNumber} File`;
-            const customLabel = getVersionNote(fileId, v.versionNumber);
-            const label = `V${v.versionNumber} ${customLabel || 'File'}`;
+          versions.map((v, idx) => {          
+            const note = versionNotes[v.versionNumber] || '';
+            const label = `V${v.versionNumber} ${note || 'File'}`;
             // 첫 번째 아이템 top 148px, 다음은 148 + 60 * idx
             const topPos = 148 + idx * 70;
             return (                
             <div
             key={v.versionId}
+            // className="versionmap"
             style={{ position: 'absolute', top: topPos}}
             onContextMenu={e => handleContextMenu(e, v)}
           >
@@ -168,9 +194,28 @@ return (
         x={ctxX}
         y={ctxY}
         visible={ctxVisible}
-        onClose={handleCloseContext}
+        // onClose={handleCloseContext}
         onEdit={handleEdit}
       />
+      
+      {editModalVisible && selectedVersion &&(
+        <div className="modal-overlay">
+          <div className="modal">
+            <h2>V{selectedVersion?.versionNumber} 설명 수정</h2>
+            <textarea
+              value={noteInput}
+              onChange={e => setNoteInput(e.target.value)}
+              rows={4}
+              style={{ width: '100%' }}
+            />
+            <div className="modal-buttons">
+              <button onClick={() => { setEditModalVisible(false); setSelectedVersion(null); }}>취소</button>
+              <button onClick={saveEdit}>저장</button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
