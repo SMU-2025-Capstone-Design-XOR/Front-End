@@ -1,4 +1,4 @@
-// File: webpack.config.js
+// File: webpack.config.cjs
 const path = require('path');
 
 module.exports = {
@@ -36,7 +36,10 @@ module.exports = {
       {
         test: /\.jsx?$/,
         exclude: /node_modules/,
-        use: 'babel-loader'
+        use: 'babel-loader',
+        resolve: {
+          fullySpecified: false
+        },
       },
       {
         test: /\.css$/,

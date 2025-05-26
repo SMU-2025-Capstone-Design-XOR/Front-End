@@ -2,9 +2,10 @@
   "name": "xor_project",
   "version": "1.0.0",
   "description": "",
+  "type": "module",
   "main": "main.js",
   "scripts": {
-    "build": "webpack",
+    "build": "webpack --config webpack.config.cjs",
     "start": "npm run build && electron .",
     "pack": "electron-builder --dir",
     "dist": "electron-builder",

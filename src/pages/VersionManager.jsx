@@ -166,20 +166,38 @@ return (
           versions.map((v, idx) => {          
             const note = versionNotes[v.versionNumber] || '';
             const label = `V${v.versionNumber} ${note || 'File'}`;
+            const lastMod = v.lastModified;
+            const formattedDate = lastMod
+                ? new Date(lastMod).toLocaleString()
+                : '';
             // 첫 번째 아이템 top 148px, 다음은 148 + 60 * idx
             const topPos = 148 + idx * 70;
             return (                
             <div
-            key={v.versionId}
-            // className="versionmap"
-            style={{ position: 'absolute', top: topPos}}
-            onContextMenu={e => handleContextMenu(e, v)}
-          >
-            <VersionItem
+                key={v.versionId}
+                className="versionmap"
+                style={{ position: 'absolute', top: topPos}}
+                onContextMenu={e => handleContextMenu(e, v)}
+            >
+            <div className="div">
+              <div>
+                <p className="text-wrapper">{label}</p>
+                {formattedDate && (
+                  <p className="text-subtext">{formattedDate}</p>
+                )}
+              </div>
+            </div>
+            <div
+                  className="restore"
+                  onClick={() => handleRestore(v.versionNumber)}
+                >
+                  <span className="label-text">Restore</span>
+                </div>
+            {/* <VersionItem
               label={label}
               top={0}
               onRestore={() => handleRestore(v.versionNumber)}
-            />
+            /> */}
           </div>            
             );
           })
@@ -201,7 +219,7 @@ return (
       {editModalVisible && selectedVersion &&(
         <div className="modal-overlay">
           <div className="modal">
-            <h2>V{selectedVersion?.versionNumber} 설명 수정</h2>
+            <h2>V{selectedVersion?.versionNumber} 버전 정보 수정</h2>
             <textarea
               value={noteInput}
               onChange={e => setNoteInput(e.target.value)}

@@ -5,8 +5,8 @@ import editSvg from '../assets/Context_Menu/ve.svg';
 // import '../css/folder_context.css';
 import '../css/file-context.css';
 
-// onShare은 일단 나중에
-const VersionContext = ({ x, y, visible, onClose, onEdit }) => {
+// onClose은 나중에
+const VersionContext = ({ x, y, visible, onEdit }) => {
   
   const menuRef = useRef(null);
   const [adjustedY, setAdjustedY] = useState(y);
@@ -38,9 +38,9 @@ const VersionContext = ({ x, y, visible, onClose, onEdit }) => {
       className="file-context-menu"
       style={{ top: adjustedY, left: x }}
       onContextMenu={e => e.preventDefault()}
-      onMouseLeave={onClose}
+    //   onMouseLeave={onClose}
     >
-      <div className="component" onClick={() => { onEdit(); onClose(); }}>
+      <div className="component" onClick={() => { onEdit(); }}>
         <img className="icon" src={editSvg} alt="버전 정보 수정" />
         <span className="label">버전 정보 수정</span>
       </div>
@@ -52,7 +52,7 @@ VersionContext.propTypes = {
   x:         PropTypes.number.isRequired,
   y:         PropTypes.number.isRequired,
   visible:   PropTypes.bool.isRequired,
-  onClose:   PropTypes.func.isRequired,
+//   onClose:   PropTypes.func.isRequired,
   onEdit: PropTypes.func.isRequired,
 };
 

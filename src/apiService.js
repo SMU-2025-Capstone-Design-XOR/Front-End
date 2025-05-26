@@ -135,6 +135,22 @@ export const downloadFolderFile = async (syncFolderId, relativePath) => {
   return fetchWithAuth(url, { method: 'GET' });
 };
 
+// /**
+//  * 단일 파일 다운로드 (쿼리파라미터 방식)
+//  */
+// export const downloadFolderFile = async (syncFolderId, relativePath) => {
+//   const userId = getUserIdFromToken();
+//   if (!userId) throw new Error('유효한 토큰이 없습니다.');
+
+//   // relativePath 전체를 인코딩 (슬래시 포함)
+//   const encodedPath = encodeURIComponent(relativePath);
+
+//   // URL을 쿼리파라미터 형식으로 보냄
+//   const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files?relativePath=${encodedPath}`;
+
+//   return fetchWithAuth(url, { method: 'GET' });
+// };
+
 
 /**
  * 싱크 폴더 삭제
@@ -267,6 +283,18 @@ export const getFileVersions = async (syncFolderId, fileId) => {
 
   const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}` +
               `/files/${encodeURIComponent(fileId)}/versions`;
+
+  // 서버에서 버전 목록과 메타데이터를 받아옵니다.
+  const versions = await fetchWithAuth(url, { method: 'GET' });
+
+
+  // 각 버전에 lastModified나 createdAt을 포함하도록 가공
+  if (Array.isArray(versions)) {
+    return versions.map(v => ({
+      ...v,
+      lastModified: v.lastModified || v.createdAt || null
+    }));
+  }
 
   return fetchWithAuth(url, { method: 'GET' });
 };

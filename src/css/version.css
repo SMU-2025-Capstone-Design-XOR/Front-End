@@ -12,11 +12,13 @@
   
   /* ------------------ Version 전체 컨테이너 ------------------ */
   .version {
-    background-color: #ffffffe0;
+    /* background-color: #ffffffe0; */
+    background-color: #C5C4C4;
     height: auto;       /* 내용에 따라 유동적으로 늘어나도록 */
     min-height: 500px;  /* 최소 높이 보장 */
     position: relative;
-    width: 650px;
+    /* width: 650px; */
+    width: 100%;
     padding-bottom: 20px; /* 아래 여유 공간 확보 */
   }
   
@@ -169,6 +171,13 @@
     position: absolute;
     top: 27px;
     width: 60px;
+  }
+  
+/* 각 버전 항목의 서브텍스트(마지막 수정시간) 스타일 */
+.version .text-subtext {
+    font-size: 13px;
+    color: #e0e0e0;
+    margin-top: 4px;
   }
   
 

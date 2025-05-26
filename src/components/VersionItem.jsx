@@ -1,6 +1,6 @@
 // src/components/VersionItem.jsx
 import React from "react";
-
+import "../css/version.css";
 /**
  * props:
  *  - label: 버전 레이블 (예: "Version 1")

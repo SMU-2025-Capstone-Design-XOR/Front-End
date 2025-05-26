@@ -1,17 +1,25 @@
 
 // src/main.js
-const { app, BrowserWindow, dialog, ipcMain } = require('electron');
-const remoteMain = require('@electron/remote/main');
-const path = require('path');
-const fs = require('fs');
-const os = require('os');
+
+// 1) url 모듈에서 fileURLToPath 가져오기
+import { fileURLToPath } from 'url';
+
+// 2) 현재 모듈의 절대 파일 경로, 그리고 디렉터리 경로 생성
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
+
+
+import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import remoteMain from '@electron/remote/main/index.js';
+import path from 'path';
+import fs from 'fs';
+import os from 'os';
+import Store from 'electron-store';
+
 
 remoteMain.initialize();
 
-const storeModule = require('electron-store');
 // interop guard: default 프로퍼티가 있으면 그걸, 아니면 모듈 자체를 Store로
-const Store = storeModule.default || storeModule;
-// const Store = require('electron-store').default;
 const noteStore = new Store({ name: 'version-notes' })
 // 1. clientMapStore 초기화
 global.clientMapStore = {};  // 폴더 ID -> 파일 목록 매핑
@@ -85,7 +93,7 @@ function createWindow() {
 // ▶️ 새로 추가: 버전 관리용 윈도우 생성 함수
 function createVersionWindow(folderId, fileId, relativePath) {
   const win = new BrowserWindow({
-    width: 750, height: 500,
+    width: 700, height: 500,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
