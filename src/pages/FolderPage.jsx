@@ -61,6 +61,12 @@ export default function FolderPage() {
         (f.id != null || f.originalName) &&
         !f.originalName.startsWith('.')
       );
+      
+      // // 1) latest 하위 항목만 골라내기
+      // const latestOnly = list.filter(f =>
+      //   // 상대경로에 ".snapshot/latest/"가 포함되어야 합니다
+      //   f.relativePath.includes('.snapshot/latest/')
+      // );      
 
       // 같은 relativePath를 가진 파일이 있을 경우, 최신 파일만 남기기
       const fileMap = new Map();

@@ -48,6 +48,7 @@ export default function VersionManager() {
     setLoading(true);
     getFileVersions(folderId, fileId)
       .then(list => {
+        console.log('▶ getFileVersions 응답:', list);
         setVersions(list);
         setLoading(false);
       })
@@ -159,55 +160,50 @@ return (
         </div>
       )}
 
-      {/* 버전 목록 */}
-      {!loading &&
-        !error &&
-        (versions.length > 0 ? (
-          versions.map((v, idx) => {          
+        {/* 버전 목록 */}
+        <div className="version-list">
+            { !loading && !error && versions.length === 0 && (
+            <div style={{ color: "#555", padding: "20px 85px" }}>
+                버전이 없습니다.
+            </div>
+            )}
+
+            { !loading && !error && versions.map((v, idx) => {
             const note = versionNotes[v.versionNumber] || '';
             const label = `V${v.versionNumber} ${note || 'File'}`;
-            const lastMod = v.lastModified;
-            const formattedDate = lastMod
-                ? new Date(lastMod).toLocaleString()
+            const created = v.createdDate;
+            const formattedDate = created
+                ? new Date(created).toLocaleString()
                 : '';
-            // 첫 번째 아이템 top 148px, 다음은 148 + 60 * idx
-            const topPos = 148 + idx * 70;
-            return (                
-            <div
+            return (
+                <div
                 key={v.versionId}
                 className="versionmap"
-                style={{ position: 'absolute', top: topPos}}
                 onContextMenu={e => handleContextMenu(e, v)}
-            >
-            <div className="div">
-              <div>
-                <p className="text-wrapper">{label}</p>
-                {formattedDate && (
-                  <p className="text-subtext">{formattedDate}</p>
-                )}
-              </div>
-            </div>
-            <div
-                  className="restore"
-                  onClick={() => handleRestore(v.versionNumber)}
                 >
-                  <span className="label-text">Restore</span>
+                <div className="div">
+                    <p className="text-wrapper">{label}</p>
+                    {/* {formattedDate && (
+                    <p className="text-subtext-right">{formattedDate}</p>
+                    )} */}
                 </div>
-            {/* <VersionItem
-              label={label}
-              top={0}
-              onRestore={() => handleRestore(v.versionNumber)}
-            /> */}
-          </div>            
-            );
-          })
-        ) : (
-          <div
-            style={{ position: "absolute", top: 148, left: 75, color: "#555" }}
-          >
-            버전이 없습니다.
-          </div>
-        ))}
+                
+                {formattedDate && (
+                    <p className="text-subtext-right">{formattedDate}</p>
+                )}
+
+                <div
+                    className="restore"
+                    onClick={() => handleRestore(v.versionNumber)}
+                >
+                    <span className="label-text">Restore</span>
+                </div>
+                </div>
+            )
+            })}
+        </div>
+
+        
       <VersionContext
         x={ctxX}
         y={ctxY}
