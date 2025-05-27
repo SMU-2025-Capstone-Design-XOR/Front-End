@@ -1,18 +1,3 @@
-// // src/utils/versionNoteStore.js
-// import Store from 'electron-store';
-
-// const store = new Store({ name: 'version-notes' });
-
-// export function getVersionNote(fileId, versionNumber) {
-//   const key = `${fileId}-v${versionNumber}`;
-//   return store.get(key, '');
-// }
-
-// export function setVersionNote(fileId, versionNumber, note) {
-//   const key = `${fileId}-v${versionNumber}`;
-//   store.set(key, note);
-// }
-
 // src/utils/versionNoteStore.js
 import { ipcRenderer } from 'electron'
 
