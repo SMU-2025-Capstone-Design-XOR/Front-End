@@ -62,6 +62,8 @@ export default function FolderPage() {
   const handleLogout = () => {
     if (window.confirm('로그아웃하시겠습니까?')) {
       localStorage.clear();
+      // ipcRenderer.send('user-logged-out');
+
       navigate('/');
     }
   };

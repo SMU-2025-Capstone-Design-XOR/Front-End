@@ -198,21 +198,13 @@ export default function Home() {
       }
 
       // 6) 목록 갱신 & SyncManager에 알리기
-      
-      // const folders = Array.isArray(refreshed) ? refreshed : [];
-      // setSyncFolders(prev => {
-      //   // 이미 같은 ID가 있으면 무시
-      //   if (prev.some(f => f.id === created.id)) return prev;
-      //   // 아니면 전체 새 목록으로 덮어쓰기
-      //   return folders;
-      // });
       const refreshed = await getSyncFolder();
       setSyncFolders(Array.isArray(refreshed) ? refreshed : []);
       // 이 경로는 SyncManager 쪽에서 무시해야 할 “방금 추가된” 경로
 
 
-      ipcRenderer.send('sync-folder-added', created);
-
+      // ipcRenderer.send('sync-folder-added', created);
+      ipcRenderer.send('flag-folder-added', created);
     } catch (err) {
       console.error('폴더 등록/동기화 실패:', err);
       alert('폴더 등록 또는 동기화 중 오류가 발생했습니다.');
@@ -333,6 +325,8 @@ export default function Home() {
       localStorage.removeItem('token');
       localStorage.removeItem('currentUser');
       localStorage.removeItem('rememberedUsername');
+      // ipcRenderer.send('user-logged-out');
+
       navigate('/');
     }
   };  

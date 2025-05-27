@@ -61,6 +61,7 @@ export default function SyncManager() {
   const initialSyncDoneRef    = useRef({}); // Tracks if initial sync is completed per folder
   const navigate              = useNavigate();
   const folderPathMap = useRef({});
+  const autoRegisteredRef = useRef(false);
   const justAdded = useRef(new Set());
 
   
@@ -226,6 +227,15 @@ const handleLocalChange = async (filePath, id, root) => {
     };
     console.log('📁 [SyncManager] 변경된 파일 메타데이터:', changedMeta);
 
+    // 1) prevClientMapRef 에 이미 저장된 “최종 서버 버전(또는 마지막 비교 시점)” 
+    const clientMap = prevClientMapRef.current[id] || new Map();
+    const prevMeta = clientMap.get(rel);
+
+    // 2) 서버와 비교: “진짜 내용(해시)이 완전히 같으면” skip
+    if (prevMeta && prevMeta.hash === changedMeta.hash) {
+      console.log(`📁 해시 동일(미세 mtime 변경 또는 빈 수정) → 업로드 스킵: ${rel}`);
+      return;
+    }    
     
     // 1) 서버 메타 조회 + normalizeRelPath
     const rawServerFiles = await getFolderFileList(id);
@@ -247,7 +257,17 @@ const handleLocalChange = async (filePath, id, root) => {
         const serverTime = new Date(serverMeta.lastModified);
         if (clientTime > serverTime) {
           console.warn(`📁 변경이 최신 → 업로드: ${rel}`);
-          await uploadFile(id, filePath, rel);
+          try {
+            await uploadFile(id, filePath, rel);
+          } catch (e) {
+            // 만약 서버에서 500을 던진다면, “이미 같은 경로에 동일 내용이 있거나” 업로드가 불필요한 상황이라고 판단하고 무시
+            if (e.message.includes('HTTP 500')) {
+              console.warn(`⚠️ [SyncManager] 업로드 500 무시 (이미 최신일 수 있음): ${rel}`);
+            } else {
+              throw e;
+            }
+          }
+          // await uploadFile(id, filePath, rel);
         } else {
           console.warn(`📁 서버가 최신 → 다운로드: ${rel}`);
           const blob = await downloadFolderFile(id, rel);
@@ -268,7 +288,7 @@ const handleLocalChange = async (filePath, id, root) => {
     }
 
     // 5. 클라이언트 맵 갱신
-    const clientMap = prevClientMapRef.current[id] || new Map();
+    // const clientMap = prevClientMapRef.current[id] || new Map();
     clientMap.set(rel, changedMeta);
     prevClientMapRef.current[id] = clientMap;
 
@@ -485,12 +505,27 @@ const handleLocalChange = async (filePath, id, root) => {
     setFolders(prev => prev.filter(f => f.id !== id));
   }
   
+  // // ── 로그아웃 시 플래그 및 상태 초기화 ──
+  // useEffect(() => {
+  //   const onLogout = () => {
+  //     // 다음 로그인 때 다시 초기 로드 & doSync()가 돌도록 모두 리셋
+  //     autoRegisteredRef.current   = false;
+  //     initialSyncDoneRef.current  = {};
+  //     setFolders([]);
+  //   };
+  //   ipcRenderer.on('user-logged-out', onLogout);
+  //   return () => {
+  //     ipcRenderer.removeListener('user-logged-out', onLogout);
+  //   };
+  // }, []);
+
+
+
   // ── 컴포넌트 첫 렌더링 시 “initialSyncDoneRef” 한 번만 초기화 ──
   useEffect(() => {
     initialSyncDoneRef.current = {};
   }, []);
 
-  const autoRegisteredRef = useRef(false);
   // ── 초기 싱크폴더 로드 & 루트폴더 자동 등록 ──
   useEffect(() => {
     if (autoRegisteredRef.current) return;
@@ -535,6 +570,54 @@ const handleLocalChange = async (filePath, id, root) => {
       }
     })();
   }, []);
+
+// ── “Home.jsx에서 이미 초기 동기화까지 끝난 폴더 추가” 이벤트 받기 ──
+useEffect(() => {
+  const onDosyncFolderAdd = (_e, folder) => {
+    console.warn(`📁 [SyncManager] (초기 동기화 이미 끝난) 폴더 추가 수신 → id=${folder.id}, path=${folder.folderPath}`);
+    setFolders(prev => {
+      if (prev.some(f => f.id === folder.id)) return prev;
+      return [...prev, folder];
+    });
+    // 이미 Home.jsx에서 초기 업로드/다운로드를 마쳤으므로 doSync()에서 SKIP되도록 true로 표시
+    initialSyncDoneRef.current[folder.id] = true;
+    folderPathMap.current[folder.id] = folder.folderPath;
+
+        // ② 서버 파일 메타를 미리 가져와서 prevClientMapRef 에 채워 둔다
+  // try {
+  //   const rawServerFiles = await getFolderFileList(folder.id);
+  //   const serverFiles = rawServerFiles.map(f => ({
+  //     ...f,
+  //     relativePath: normalizeRelPath(f.relativePath || f.originalName),
+  //   }));
+    
+  //   const clientMap = new Map();
+  //   serverFiles.forEach(f => {
+  //     // 폴더 항목(ending with "/") 은 건너뛴다
+  //     if (f.relativePath.endsWith('/')) return;
+  //     clientMap.set(f.relativePath, {
+  //       originalName: path.basename(f.relativePath),
+  //       relativePath: f.relativePath,
+  //       size: f.size ?? 0,               // 서버에서 size 정보가 있으면 쓰고, 없으면 0
+  //       hash: f.hash || '',              // 서버에서 hash 정보가 있으면 쓰고, 없으면 빈 문자열
+  //       lastModified: f.lastModified,    // 서버 메타에 lastModified가 있다면
+  //     });
+  //   });
+  //   prevClientMapRef.current[folder.id] = clientMap;
+  // } catch (e) {
+  //   console.warn(`⚠️ [SyncManager] 초기 prevClientMap 셋업 중 에러`, e);
+  //   // 어쨌든 빈 Map이라도 두면 다음 비교에서 "서버에 없음"이 아니라 "서버 해시 ""(빈)이므로 실제 변경과 달리
+  //   // mtime만 바뀐 순간엔 해시 비교 시 같은 내용(빈→빈)이어서 upload가 스킵됨
+  //   prevClientMapRef.current[folder.id] = new Map();
+  // }
+    
+  };
+
+  ipcRenderer.on('flag-folder-added', onDosyncFolderAdd);
+  return () => {
+    ipcRenderer.removeListener('flag-folder-added', onDosyncFolderAdd);
+  };
+}, []);
 
 
   // 1) IPC로 “local-folder-added” 받기
@@ -685,7 +768,6 @@ useEffect(() => {
               console.warn(`📁 [SyncManager] 로컬 폴더가 사라졌습니다. 재생성 후 전체 다운로드 → ${root}`);
               fs.mkdirSync(root, { recursive: true });
 
-              // const serverList = await getFolderFileList(id);
               const rawServerList = await getFolderFileList(id);
               const serverList = rawServerList.map(f => ({
                 ...f,
@@ -718,24 +800,7 @@ useEffect(() => {
                   } else {
                     console.error(`📁 [SyncManager] 다운로드 실패: ${rel}`, e);
                   }
-                }
-                // if (!rel.includes('/')) {
-                //   try {
-                //     const blob = await downloadFolderFile(id, rel);
-                //     const buf = await blob.arrayBuffer();
-                //     fs.mkdirSync(path.dirname(dest), { recursive: true });
-                //     fs.writeFileSync(dest, Buffer.from(buf));
-                //     ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
-                //   } catch (e) {
-                //     if (e.message.startsWith('HTTP 404')) {
-                //       console.warn(`📁 [SyncManager] 다운로드 실패 (404): ${rel}`);
-                //     } else {
-                //       console.error(`📁 [SyncManager] 다운로드 실패: ${rel}`, e);
-                //     }
-                //   }
-                // } else {
-                //   console.log(`🚫 [SyncManager] 서브폴더 내 파일 제외됨: ${rel}`);
-                // }              
+                }            
   
               }
               initialSyncDoneRef.current[id] = true;
@@ -797,18 +862,7 @@ useEffect(() => {
                     console.warn(`🔼 로컬이 최신 → 업로드: ${rel}`);
                     await uploadFile(id, path.join(root, rel), rel);
                     ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: rel });
-                  } else {
-                    // 서브폴더 내 파일은 변경 반영할 수 없다... 특히 다운로드.
-                    // if (!rel.includes('/')) {
-                    //   console.warn(`🔽 서버가 최신 → 다운로드: ${rel}`);
-                    //   const blob = await downloadFolderFile(id, rel);
-                    //   const buf  = await blob.arrayBuffer();
-                    //   const dest = path.join(root, rel);
-                    //   fs.writeFileSync(dest, Buffer.from(buf));
-                    //   ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: rel });
-                    // } else {
-                    //   console.log(`🚫 변경 반영 제외 (서브폴더 파일): ${rel}`);
-                    // }                  
+                  } else {                 
                     console.warn(`🔽 서버가 최신 → 다운로드: ${rel}`);
                     const blob = await downloadFolderFile(id, rel);
                     const buf  = await blob.arrayBuffer();

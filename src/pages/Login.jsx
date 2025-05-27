@@ -46,7 +46,7 @@ const Login = () => {
         // 사용자 폴더 생성 요청 후, 실제 경로를 받아와서 필요하면 저장
         const createdDir = await ipcRenderer.invoke('init-user-folder', username);
         // 계정 이름만 남겨도 되지만, 경로가 필요하다면 아래처럼 저장하세요
-        // localStorage.setItem('userDir', createdDir);
+        localStorage.setItem('userDir', createdDir);
         localStorage.setItem('xorUser', username);
 
         // console.log('User Directory:', userDir);

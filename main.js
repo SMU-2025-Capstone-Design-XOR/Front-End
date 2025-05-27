@@ -136,11 +136,15 @@ app.whenReady().then(() => {
   ipcMain.on('local-folder-added',   (e, d) => broadcast('local-folder-added',   d));
 
   ipcMain.on('dosync-folder-added',   (e, d) => broadcast('dosync-folder-added',  d));
+  ipcMain.on('flag-folder-added',   (e, d) => broadcast('flag-folder-added',  d));
 
   ipcMain.on('sync-folder-removed', (e, d) => broadcast('sync-folder-removed', d));
   ipcMain.on('sub-folder-added',   (e, d) => broadcast('sub-folder-added',   d));
   ipcMain.on('sub-folder-removed', (e, d) => broadcast('sub-folder-removed', d));
   ipcMain.on('sub-folder-removed-server', (e, d) => broadcast('sub-folder-removed', d));
+
+  ipcMain.on('user-logged-in', (e, d) => broadcast('user-logged-in', d));
+  ipcMain.on('user-logged-out', (e, d) => broadcast('user-logged-out', d));
 
   ipcMain.handle('open-folder-dialog', async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
