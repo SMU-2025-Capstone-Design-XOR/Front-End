@@ -49,7 +49,15 @@ export default function VersionManager() {
     getFileVersions(folderId, fileId)
       .then(list => {
         console.log('▶ getFileVersions 응답:', list);
-        setVersions(list);
+        const distinct = Array.from(
+          list.reduce((acc, v) => {
+            if (!acc.has(v.versionNumber)) acc.set(v.versionNumber, v);
+            return acc;
+          }, new Map())
+          .values()
+        )
+        // setVersions(list);
+        setVersions(distinct);
         setLoading(false);
       })
       .catch(err => {
@@ -170,7 +178,7 @@ return (
 
             { !loading && !error && versions.map((v, idx) => {
             const note = versionNotes[v.versionNumber] || '';
-            const label = `V${v.versionNumber} ${note || 'File'}`;
+            const label = `V${v.versionNumber} : ${note || 'File'}`;
             const created = v.createdDate;
             const formattedDate = created
                 ? new Date(created).toLocaleString()

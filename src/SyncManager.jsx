@@ -573,7 +573,7 @@ const handleLocalChange = async (filePath, id, root) => {
 
 // ── “Home.jsx에서 이미 초기 동기화까지 끝난 폴더 추가” 이벤트 받기 ──
 useEffect(() => {
-  const onDosyncFolderAdd = (_e, folder) => {
+  const onDosyncFolderAdd = async (_e, folder) => {
     console.warn(`📁 [SyncManager] (초기 동기화 이미 끝난) 폴더 추가 수신 → id=${folder.id}, path=${folder.folderPath}`);
     setFolders(prev => {
       if (prev.some(f => f.id === folder.id)) return prev;
@@ -584,32 +584,32 @@ useEffect(() => {
     folderPathMap.current[folder.id] = folder.folderPath;
 
         // ② 서버 파일 메타를 미리 가져와서 prevClientMapRef 에 채워 둔다
-  // try {
-  //   const rawServerFiles = await getFolderFileList(folder.id);
-  //   const serverFiles = rawServerFiles.map(f => ({
-  //     ...f,
-  //     relativePath: normalizeRelPath(f.relativePath || f.originalName),
-  //   }));
+  try {
+    const rawServerFiles = await getFolderFileList(folder.id);
+    const serverFiles = rawServerFiles.map(f => ({
+      ...f,
+      relativePath: normalizeRelPath(f.relativePath || f.originalName),
+    }));
     
-  //   const clientMap = new Map();
-  //   serverFiles.forEach(f => {
-  //     // 폴더 항목(ending with "/") 은 건너뛴다
-  //     if (f.relativePath.endsWith('/')) return;
-  //     clientMap.set(f.relativePath, {
-  //       originalName: path.basename(f.relativePath),
-  //       relativePath: f.relativePath,
-  //       size: f.size ?? 0,               // 서버에서 size 정보가 있으면 쓰고, 없으면 0
-  //       hash: f.hash || '',              // 서버에서 hash 정보가 있으면 쓰고, 없으면 빈 문자열
-  //       lastModified: f.lastModified,    // 서버 메타에 lastModified가 있다면
-  //     });
-  //   });
-  //   prevClientMapRef.current[folder.id] = clientMap;
-  // } catch (e) {
-  //   console.warn(`⚠️ [SyncManager] 초기 prevClientMap 셋업 중 에러`, e);
-  //   // 어쨌든 빈 Map이라도 두면 다음 비교에서 "서버에 없음"이 아니라 "서버 해시 ""(빈)이므로 실제 변경과 달리
-  //   // mtime만 바뀐 순간엔 해시 비교 시 같은 내용(빈→빈)이어서 upload가 스킵됨
-  //   prevClientMapRef.current[folder.id] = new Map();
-  // }
+    const clientMap = new Map();
+    serverFiles.forEach(f => {
+      // 폴더 항목(ending with "/") 은 건너뛴다
+      if (f.relativePath.endsWith('/')) return;
+      clientMap.set(f.relativePath, {
+        originalName: path.basename(f.relativePath),
+        relativePath: f.relativePath,
+        size: f.size ?? 0,               // 서버에서 size 정보가 있으면 쓰고, 없으면 0
+        hash: f.hash || '',              // 서버에서 hash 정보가 있으면 쓰고, 없으면 빈 문자열
+        lastModified: f.lastModified,    // 서버 메타에 lastModified가 있다면
+      });
+    });
+    prevClientMapRef.current[folder.id] = clientMap;
+  } catch (e) {
+    console.warn(`⚠️ [SyncManager] 초기 prevClientMap 셋업 중 에러`, e);
+    // 어쨌든 빈 Map이라도 두면 다음 비교에서 "서버에 없음"이 아니라 "서버 해시 ""(빈)이므로 실제 변경과 달리
+    // mtime만 바뀐 순간엔 해시 비교 시 같은 내용(빈→빈)이어서 upload가 스킵됨
+    prevClientMapRef.current[folder.id] = new Map();
+  }
     
   };
 

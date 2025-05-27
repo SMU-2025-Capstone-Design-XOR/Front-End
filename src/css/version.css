@@ -113,7 +113,7 @@
     align-items: center;           /* 수직 중앙 정렬 */
     justify-content: space-between;/* 좌측 텍스트, 우측 버튼 간격 확보 */
 
-    padding: 5px 15px; /* 좌우 여유 공간 */
+    padding: 8px 10px; /* 좌우 여유 공간 */
     box-sizing: border-box;    
     margin: 0 auto 5px; 
   }
@@ -124,33 +124,40 @@
     align-items: center;
     flex:1;
     display:flex;
-    padding-left: 95px;
+    justify-items: center;
+    padding-left: 100px;
+    gap: 8px;
   }
   
   /* 버전 레이블 텍스트 */
   .version .text-wrapper {
     color: #ffffff;
     font-family: "Poppins-SemiBold", Helvetica;
-    font-size: 21px;
+    font-size: 19px;
     font-weight: 600;
-    line-height: 1;
+    /* line-height: 1; */
     position:static;
     margin: 0;
+    /* margin-left: 100px;
+    padding-left: 0; */
     max-width: 100%;
+    flex-grow: 1;
+    overflow: hidden;
     /* white-space: nowrap; */
   }
 
   /* 각 버전 항목의 서브텍스트(마지막 수정시간) 스타일 */
   .version .text-subtext-right {
-    font-size: 10px;
+    font-size: 9px;
     color: #e0e0e0;
-    margin-left: 1px;
-    margin-right: 3px;
+    /* margin-left: 1px; */
+    margin-right: 5px;
     white-space: nowrap;
   }
   
   /* ------------------ 복원 버튼 컨테이너 ------------------ */
   .version .restore {
+    flex-shrink: 0; 
     align-items: center;
     background-color: #f1f1f1;
     border-radius: 15px;
