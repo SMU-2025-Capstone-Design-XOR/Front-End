@@ -257,17 +257,17 @@ const handleLocalChange = async (filePath, id, root) => {
         const serverTime = new Date(serverMeta.lastModified);
         if (clientTime > serverTime) {
           console.warn(`📁 변경이 최신 → 업로드: ${rel}`);
-          try {
-            await uploadFile(id, filePath, rel);
-          } catch (e) {
-            // 만약 서버에서 500을 던진다면, “이미 같은 경로에 동일 내용이 있거나” 업로드가 불필요한 상황이라고 판단하고 무시
-            if (e.message.includes('HTTP 500')) {
-              console.warn(`⚠️ [SyncManager] 업로드 500 무시 (이미 최신일 수 있음): ${rel}`);
-            } else {
-              throw e;
-            }
-          }
-          // await uploadFile(id, filePath, rel);
+          // try {
+          //   await uploadFile(id, filePath, rel);
+          // } catch (e) {
+          //   // 만약 서버에서 500을 던진다면, “이미 같은 경로에 동일 내용이 있거나” 업로드가 불필요한 상황이라고 판단하고 무시
+          //   if (e.message.includes('HTTP 500')) {
+          //     console.warn(`⚠️ [SyncManager] 업로드 500 무시 (이미 최신일 수 있음): ${rel}`);
+          //   } else {
+          //     throw e;
+          //   }
+          // }
+          await uploadFile(id, filePath, rel);
         } else {
           console.warn(`📁 서버가 최신 → 다운로드: ${rel}`);
           const blob = await downloadFolderFile(id, rel);

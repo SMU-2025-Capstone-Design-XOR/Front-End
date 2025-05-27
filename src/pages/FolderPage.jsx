@@ -351,8 +351,7 @@ export default function FolderPage() {
   // ── “정보 가져오기” ──
   const handleInfo = async (relativePath) => {
     try {
-      // const meta = await getFolderFileMeta(id, relativePath);
-      const meta = await getFolderFileMeta(id, '/' + relativePath);
+      const meta = await getFolderFileMeta(id, relativePath);
       alert(JSON.stringify(meta, null, 2));
     } catch (err) {
       console.error(err);
@@ -365,8 +364,7 @@ export default function FolderPage() {
     try {
       // 항상 파일의 상대경로 문자열을 서버에 전달
       console.log('경로', relativePath);
-      // const blob = await downloadFolderFile(id, relativePath);
-      const blob = await downloadFolderFile(id, '/' + relativePath);
+      const blob = await downloadFolderFile(id, relativePath);
       const buf  = await blob.arrayBuffer();
       // 3) 저장 다이얼로그
       const savePath = path.join(folderPath, relativePath)
@@ -381,7 +379,6 @@ export default function FolderPage() {
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
       fs.writeFileSync(filePath, Buffer.from(buf));
-      // fs.writeFileSync(savePath, Buffer.from(buf));
       alert('다운로드 완료!');
     } catch (err) {
       console.error(err);

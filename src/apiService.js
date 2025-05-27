@@ -139,14 +139,14 @@ export const downloadFolderFile = async (syncFolderId, relativePath) => {
   if (!userId) throw new Error('유효한 토큰이 없습니다.');
 
   // 경로 전체(URL 인코딩)
-  // const encoded = relativePath
-  //   .split('/')
-  //   .map(encodeURIComponent)
-  //   .join('/');
+  const encoded = relativePath
+    .split('/')
+    .map(encodeURIComponent)
+    .join('/');
 
   // 백엔드가 절대경로 형태로 저장하고 있으니, 앞에 "/" 가 없으면 붙여준다
-  const rp = relativePath.startsWith('/') ? relativePath : '/' + relativePath;
-  const encoded = rp.split('/').map(encodeURIComponent).join('/');
+  // const rp = relativePath.startsWith('/') ? relativePath : '/' + relativePath;
+  // const encoded = rp.split('/').map(encodeURIComponent).join('/');
 
   const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}` +
               `/files/download?path=${encoded}`;
@@ -231,13 +231,13 @@ export const getFolderFileMeta = async (syncFolderId, relativePath) => {
   const userId = getUserIdFromToken();
   if (!userId) throw new Error('유효한 토큰이 없습니다.');
 
-  // const encoded = relativePath
-  //   .split('/')
-  //   .map(encodeURIComponent)
-  //   .join('/');
+  const encoded = relativePath
+    .split('/')
+    .map(encodeURIComponent)
+    .join('/');
   // 백엔드가 절대경로 형태로 저장하고 있으니, 앞에 "/" 가 없으면 붙여준다
-  const rp = relativePath.startsWith('/') ? relativePath : '/' + relativePath;
-  const encoded = rp.split('/').map(encodeURIComponent).join('/');
+  // const rp = relativePath.startsWith('/') ? relativePath : '/' + relativePath;
+  // const encoded = rp.split('/').map(encodeURIComponent).join('/');
 
   const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}` +
               `/files/meta?path=${encoded}`;
