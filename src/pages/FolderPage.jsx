@@ -77,165 +77,84 @@ export default function FolderPage() {
   // ── 파일 리스트 상태 ──
   const [fileList, setFileList] = useState([]);
   const [currentPath, setCurrentPath] = useState('');
-
   const loadFiles = async (subPath = '') => {
     try {
-      const files = await getFolderFileList(id, subPath);
-      // console.log(files);
-      const filteredFiles = files.filter(f => 
-        typeof f === 'object' &&
-        (f.id != null || f.originalName) &&
-        !f.originalName.startsWith('.')
-      );
-      
-      // 2) prefix 슬래시 정리 → 전부 “foo/bar/latest/baz.txt” 형태로
-      const cleaned = filteredFiles.map(f => {
-           // 1) 앞뒤 슬래시 제거
-           let rp = (f.relativePath || f.originalName || '').replace(/^\/+|\/+$/g, '');
-           // 2) 'folder' 엔트리라면 끝에 반드시 '/'를 붙여 줍니다
-           if (f.type === 'folder' && !rp.endsWith('/')) {
-             rp = rp + '/';
-           }
-           return { ...f, cleanedPath: rp };
-         });
+      const raw = await getFolderFileList(id, subPath);
+  
+      const visible = raw.filter(f => {
+        const rel = (f.relativePath || f.originalName || '')
+                      .replace(/^\/+|\/+$/g, '');
+        // 경로 조각마다 점(.)으로 시작하는지 검사
+        return !rel.split('/').some(seg => seg.startsWith('.'));
+      });
 
-      // ── “latest/ 이하의 파일만” 남기기 ──
-      const latestOnly = cleaned.filter(f =>
-        f.cleanedPath.includes('/latest/') && f.type !== 'folder'
-      );
-
-      console.log(latestOnly);
-      // 같은 relativePath를 가진 파일이 있을 경우, 최신 파일만 남기기
+      // 1) hidden / 디렉토리 엔트리 무시 & latest 이하 파일만
+      const latestOnly = visible
+        .filter(f => f.type === 'file' && (f.relativePath || f.originalName).includes('/latest/'))
+        .map(f => {
+          // 2) cleanedPath: 앞뒤 슬래시 없애기
+          // let rp = (f.relativePath || f.originalName || '').replace(/^\/+|\/+$/g, '');
+          // return { ...f, cleanedPath: rp };
+          return {
+            ...f,
+            cleanedPath: (f.relativePath || f.originalName).replace(/^\/+|\/+$/g, '')
+          };
+        });
+  
+      // 3) 최신판(unique)만 남기기 (동일 경로 중 lastModified 최신)
       const fileMap = new Map();
       latestOnly.forEach(f => {
-        const p = f.cleanedPath;
-        const prev = fileMap.get(p);
+        const key = f.cleanedPath;
+        const prev = fileMap.get(key);
         if (!prev || new Date(f.lastModified) > new Date(prev.lastModified)) {
-          fileMap.set(p, f);
+          fileMap.set(key, f);
         }
       });
-      // Map을 다시 배열로 변환
       const uniqueFiles = Array.from(fileMap.values());
-
-      // const baseMapped = uniqueFiles.map(f => {
-      //   const rel = f.relativePath?.trim() || f.originalName;
-      //   return {
-      //     fileId: f.id ?? f.fileId,
-      //     fileName: rel,
-      //     fileName:   f.cleanedPath,
-      //     name: f.originalName,
-      //     isDirectory: f.type === 'folder' || rel.endsWith('/'),
-      //     isDirectory: f.type === 'folder' || f.cleanedPath.endsWith('/'),
-      //     lastModified: f.lastModified,
-      //   };
-      // });      
-      // const mapped = baseMapped.filter(item =>
-      //   !(item.isDirectory && item.fileName === `${subPath}/`)
-      // );      
-
-      // --- **루트(최초 진입)**라면: 바로 파일만 평면으로 보여주기
-      if (subPath === '') {
-        const items = uniqueFiles.map(f => ({
-          fileId:      f.id ?? f.fileId,
-          fileName:    f.cleanedPath,      // e.g. "qwer.txt/latest/qwer.txt"
-          name:        f.originalName,     // e.g. "qwer.txt"
-          isDirectory: false,
-          lastModified: f.lastModified,
-        }))
-        // 가나다순
-        .sort((a, b) =>
-          a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
-        );
-
-        setFileList(items);
-        setCurrentPath(subPath);
-        return;    // **이후 디렉토리 로직은 건너뜁니다**
-      }
-
-      const mapped = uniqueFiles.map(f => ({
-        fileId:     f.id ?? f.fileId,
-        fileName:   f.cleanedPath,        // “foo/bar/latest/baz.txt”
-        name:       f.originalName,
-        isDirectory: f.type === 'folder' || f.cleanedPath.endsWith('/'),
-        lastModified: f.lastModified,
-      }));
-
-      const prefix = subPath ? subPath + '/' : '';
-      
-      // 현재 경로(subPath) 기준으로 서브폴더 추출
-      const dirSet = new Set();
-      mapped.forEach(item => {
-        if (!item.isDirectory) return;
-        const rel = item.fileName;            // ex) "qwer.txt/latest/"
-        if (!rel.startsWith(prefix)) return;
-        // prefix 뒤에 남은 “경로 조각” 중 첫 번째만 서브폴더
-        const rest = rel.slice(prefix.length).replace(/\/+$/, '');  
-        const seg0 = rest.split('/')[0];
-        dirSet.add(seg0);
+  
+      // 4) 원하는 “레벨”로 그룹핑
+      //    - subPath==='' → parts[0] (첫 번째)  
+      //    - subPath!==' '→ subPath 다음(parts[1]) 로
+      const groups = {};
+      uniqueFiles.forEach(f => {
+        const parts = f.cleanedPath.split('/');
+        // subPath가 있을 땐 “test/qwer.txt/latest/qwer.txt” 에서 parts[0] === subPath여야 처리
+        if (subPath && parts[0] !== subPath) return;
+        const key = subPath === '' ? parts[0] : parts[1];
+        if (!key) return;
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(f);
       });
-      const dirItems = Array.from(dirSet)
-        .map(name => ({
-          fileId:     `dir__${subPath ? `${subPath}/${name}` : name}`,
-          fileName:   subPath ? `${subPath}/${name}` : name,
-          name,
-          isDirectory:true,
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));  
-
-      // const dirSet = new Set();
-      // mapped.forEach(item => {
-      //   if (!item.isDirectory) return;
-      //   const rel = item.fileName;
-      //   // const normalizedRel = rel.replace(/^\/+/, '').replace(/\/+$/, ''); // 슬래시 정리
-      //   const normalizedRel = rel.replace(/^\/+|\/+$/g, ''); // 슬래시 정리
-      //   // const prefix = subPath ? subPath + '/' : '';
-      //   if (!normalizedRel.startsWith(prefix)) return;
-      //   const remainder = normalizedRel.slice(prefix.length);
-      //   if (!remainder.endsWith('/')) return;
-      //   // if (remainder === '') return; // 자기 자신은 무시
-      //   // const segments = remainder.split('/');
-      //   const segments = remainder.split('/').filter(Boolean);
-      //   if (segments.length >= 1) {
-      //     dirSet.add(segments[0]);
-      //   }
-      //   console.log('[DEBUG] fileName:', rel, '→ remainder:', remainder, '→ segments:', segments);
-      // });
-      // const dirItems = Array.from(dirSet).map(name => ({
-      //   fileId: `dir__${subPath ? `${subPath}/${name}` : name}`,
-      //   fileName: subPath ? `${subPath}/${name}` : name,
-      //   name,
-      //   isDirectory: true,
-      // }));
-      // ── 디렉터리(서브폴더)들을 이름(name) 기준으로 가나다순 정렬 ──
-      // dirItems.sort((a, b) => {
-      //   return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
-      // });
-
-      // 파일만 필터링
-      const fileItems = mapped
-      .filter(item => !item.isDirectory)
-      .filter(item => {
-        const rel = item.fileName;         // ex) "qwer.txt/latest/baz.txt"
-        // 1) prefix 체크
-        if (!rel.startsWith(prefix)) return false;
-        // 2) prefix 뒤에 슬래시가 더 없는 단일 레벨만
-        const rest = rel.slice(prefix.length);
-        return rest.split('/').length === 1;
-      })
-      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
-      // const fileItems = mapped
-      // .filter(item => !item.isDirectory)       // ← 폴더 제외
-      // .filter(item => {
-      //   const rel = item.fileName;
-      //   const prefix = subPath ? subPath + '/' : '';
-      //   // “바로 직속 레벨” 만 남기기
-      //   return rel.startsWith(prefix) && !rel.slice(prefix.length).includes('/');
-      // });      
-      // // ── 파일들을 이름(name) 기준으로 가나다순 정렬 ──
-      // fileItems.sort((a, b) => {
-      //   return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
-      // });
-      
+  
+      // 5) UI용 항목으로 변환
+      const dirItems = [];
+      const fileItems = [];
+      Object.keys(groups).sort((a,b)=> a.localeCompare(b, undefined, { sensitivity:'base' }))
+        .forEach(key => {
+          const grp = groups[key];
+          // “키”가 실제 파일명인 경우 → 파일, 아니면 폴더
+          // (grp[0].originalName 이 key 와 같으면 파일)
+          if (grp[0].originalName === key) {
+            // 파일
+            fileItems.push({
+              fileId:      grp[0].id ?? grp[0].fileId,
+              fileName:    subPath ? `${subPath}/${key}` : key,
+              name:        key,
+              isDirectory: false,
+              lastModified: grp[0].lastModified,
+            });
+          } else {
+            // 폴더
+            const folderPath = subPath ? `${subPath}/${key}` : key;
+            dirItems.push({
+              fileId:      `dir__${folderPath}`,
+              fileName:    folderPath,
+              name:        key,
+              isDirectory: true,
+            });
+          }
+        });
+  
       setFileList([...dirItems, ...fileItems]);
       setCurrentPath(subPath);
     } catch (err) {
@@ -243,6 +162,7 @@ export default function FolderPage() {
       alert('파일 목록 조회 실패');
     }
   };
+  
 
   // ── 1) ID 변경 시(=다른 폴더 진입) 목록 로드 ──
   useEffect(() => {
