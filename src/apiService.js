@@ -85,8 +85,7 @@ export const getPresignedDownloadUrl = async (key, expire = 15) => {
     .join('/');
 
   // expire 파라미터가 0 또는 음수일 경우 기본 생략 가능
-  const queryParams = [];
-  queryParams.push(`key=${encodedKey}`);
+  const queryParams = [`key=${encodedKey}`];
   if (typeof expire === 'number' && expire > 0) {
     queryParams.push(`expire=${encodeURIComponent(expire)}`);
   }
@@ -99,8 +98,9 @@ export const getPresignedDownloadUrl = async (key, expire = 15) => {
   );
 
   // 응답이 Blob이므로, text()로 읽어서 반환
-  const presignedUrl = await blob.text();
-  return presignedUrl;
+  // const presignedUrl = await blob.text();
+  // return presignedUrl;
+  return await blob.text();
 };
 
 

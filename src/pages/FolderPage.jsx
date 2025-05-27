@@ -90,16 +90,11 @@ export default function FolderPage() {
 
       // 1) hidden / 디렉토리 엔트리 무시 & latest 이하 파일만
       const latestOnly = visible
-        .filter(f => f.type === 'file' && (f.relativePath || f.originalName).includes('/latest/'))
-        .map(f => {
-          // 2) cleanedPath: 앞뒤 슬래시 없애기
-          // let rp = (f.relativePath || f.originalName || '').replace(/^\/+|\/+$/g, '');
-          // return { ...f, cleanedPath: rp };
-          return {
-            ...f,
-            cleanedPath: (f.relativePath || f.originalName).replace(/^\/+|\/+$/g, '')
-          };
-        });
+      .filter(f => f.type === 'file' && (f.relativePath || f.originalName).includes('/latest/'))
+      .map(f => ({
+        ...f,
+        cleanedPath: (f.relativePath || f.originalName).replace(/^\/+|\/+$/g, '')
+      }));
   
       // 3) 최신판(unique)만 남기기 (동일 경로 중 lastModified 최신)
       const fileMap = new Map();
@@ -110,6 +105,7 @@ export default function FolderPage() {
           fileMap.set(key, f);
         }
       });
+      console.log(latestOnly);
       const uniqueFiles = Array.from(fileMap.values());
   
       // 4) 원하는 “레벨”로 그룹핑
@@ -138,7 +134,8 @@ export default function FolderPage() {
             // 파일
             fileItems.push({
               fileId:      grp[0].id ?? grp[0].fileId,
-              fileName:    subPath ? `${subPath}/${key}` : key,
+              // fileName:    subPath ? `${subPath}/${key}` : key,
+              fileName:    grp[0].cleanedPath,  // ← 전체 상대경로
               name:        key,
               isDirectory: false,
               lastModified: grp[0].lastModified,
@@ -449,43 +446,27 @@ const handlefoldDelete = async () => {
   const closeFileMenu = () => setFileMenu(m => ({ ...m, visible: false }));
 
   // 파일 메뉴 핸들러
-    // ── “공유” 클릭 시 호출되는 핸들러 ──
-    const handleFileShare = async () => {
-      try {
-        closeFileMenu();  // 메뉴 닫기
-        if (!fileMenu.item) {
-          return;
-        }
-        // ================================
-        // 1) S3 Key 구성
-        //    - backend 쪽 규칙에 따라 "users/{userId}/sync-folder/{folderId}/{filePath}" 형태여야 합니다.
-        //    - fileMenu.item.fileName: 예) "test/latest/qwer.txt"
-        //      (직전에 loadFiles()에서 cleanedPath로 `f.relativePath`를 통째로 받은 상태입니다.)
-        // ================================
-        const s3Key = `users/${currentUserId}/sync-folder/${id}/${fileMenu.item.fileName}`;
-  
-        // ================================
-        // 2) Presigned URL 요청
-        // ================================
-        const presignedUrl = await getPresignedDownloadUrl(s3Key, 30); 
-          // → 30분짜리 링크 발급. 생략하면 15분 기본.
-  
-        // ================================
-        // 3) 클립보드에 복사
-        // ================================
-        clipboard.writeText(presignedUrl);
-  
-        // ================================
-        // 4) 간단한 알림
-        // ================================
-        alert(`다운로드 링크가 클립보드에 복사되었습니다:\n${presignedUrl}`);
-        // (원한다면 window.open(presignedUrl, '_blank') 처럼 곧바로 여는 것도 가능)
-  
-      } catch (err) {
-        console.error('파일 공유 실패:', err);
-        alert('파일 공유 링크 생성에 실패했습니다.\n' + err.message);
+  const handleFileShare = async () => {
+    try {
+      closeFileMenu();
+      if (!fileMenu.item) return;
+
+      const rawRelativePath = fileMenu.item.fileName;
+      if (!rawRelativePath){
+        throw new Error('유효하지 않은 파일 경로입니다.');
       }
-    };
+      const s3Key = `users/${currentUserId}/sync-folders/${id}/${rawRelativePath}`;
+      const presignedUrl = await getPresignedDownloadUrl(s3Key, 30);
+      clipboard.writeText(presignedUrl);
+
+      
+      alert(`다운로드 링크가 클립보드에 복사되었습니다:\n${presignedUrl}`);
+    } catch (err) {
+      console.error('파일 공유 실패:', err);
+      alert('파일 공유 링크 생성에 실패했습니다.\n' + err.message);
+    }
+  };
+
   const handleFileVersion  = () => {
     const { fileId, fileName } = fileMenu.item;
     ipcRenderer.send('open-version-window', {
