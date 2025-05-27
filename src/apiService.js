@@ -92,30 +92,32 @@ export const uploadFile = async (syncFolderId, localFilePath, relativePath) => {
   if (!userId) throw new Error('유효한 토큰이 없습니다.');
 
   //로컬 파일 읽기
-  const fileBuffer = window.require('fs').readFileSync(localFilePath);
+  const fs = window.require('fs');
+  const fileBuffer = fs.readFileSync(localFilePath);
   const fileName   = path.basename(localFilePath);
   const mimeType   = mime.lookup(localFilePath) || 'application/octet-stream';
 
   // 상대경로 중 “파일명”을 제외한 디렉터리 경로만 전달
-  //    예: relativePath === "foo/bar.txt" → folderPath === "foo"
-  //        relativePath === "baz.txt"       → folderPath === ""
-  const folderPath = (() => {
-    const dir = path.dirname(relativePath);
-    // node path.dirname("file.txt") === "." 이므로,
-    // "."인 경우에는 빈 문자열로 바꿔야 백엔드가 루트로 인식합니다.
-    return dir === '.' ? '' : dir.replace(/\\/g, '/');
-  })();
+  // const folderPath = (() => {
+  //   const dir = path.dirname(relativePath);
+  //   // node path.dirname("file.txt") === "." 이므로,
+  //   // "."인 경우에는 빈 문자열로 바꿔야 백엔드가 루트로 인식합니다.
+  //   return dir === '.' ? '' : dir.replace(/\\/g, '/');
+  // })();
+  let folderParam = path.dirname(relativePath).replace(/\\/g, '/');
+  if (folderParam === '.' || folderParam === '/') folderParam = '';
 
   // Buffer → Blob 변환
   const blob = new Blob([fileBuffer], { type: mimeType });
-
   // FormData 준비
   const formData = new FormData();
   formData.append('file', blob, fileName);
   // formData.append('relativePath', relativePath);
-  if (folderPath) {
-    formData.append('relativePath', folderPath);
-  }
+  // if (folderPath) {
+  //   formData.append('relativePath', folderPath);
+  // }
+  // 항상 relativePath 키를 넘깁니다 (빈 문자열이어도)
+  formData.append('relativePath', folderParam);  
 
   // fetch
   return fetchWithAuth(
@@ -128,25 +130,6 @@ export const uploadFile = async (syncFolderId, localFilePath, relativePath) => {
   );
 };
 
-
-// /**
-//  * 단일 파일 다운로드
-//  */
-// export const downloadFolderFile = async (syncFolderId, relativePath) => {
-//   const userId = getUserIdFromToken();
-//   if (!userId) throw new Error('유효한 토큰이 없습니다.');
-
-//   // "/" 단위로 URI 인코딩
-//   const safePath = relativePath
-//     .split('/')
-//     .map(encodeURIComponent)
-//     .join('/');
-
-//   // console.log(safePath);
-//   const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${safePath}`;
-//   return fetchWithAuth(url, { method: 'GET' });
-// };
-
 /**
  * 단일 파일 다운로드
  * GET /users/{userId}/sync-folders/{folderId}/files/download?path=폴더/서브폴더/파일명
@@ -156,10 +139,14 @@ export const downloadFolderFile = async (syncFolderId, relativePath) => {
   if (!userId) throw new Error('유효한 토큰이 없습니다.');
 
   // 경로 전체(URL 인코딩)
-  const encoded = relativePath
-    .split('/')
-    .map(encodeURIComponent)
-    .join('/');
+  // const encoded = relativePath
+  //   .split('/')
+  //   .map(encodeURIComponent)
+  //   .join('/');
+
+  // 백엔드가 절대경로 형태로 저장하고 있으니, 앞에 "/" 가 없으면 붙여준다
+  const rp = relativePath.startsWith('/') ? relativePath : '/' + relativePath;
+  const encoded = rp.split('/').map(encodeURIComponent).join('/');
 
   const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}` +
               `/files/download?path=${encoded}`;
@@ -197,46 +184,6 @@ export const syncFolder = async (syncFolderId, clientFiles = [], deletedFileIds 
     }
   );
 };
-
-// /**
-//  * 폴더 내 파일 목록 조회
-//  * GET /users/{userId}/sync-folders/{folderId}/files
-//  */
-// export const getFolderFileList = async (syncFolderId) => {
-//   const userId = getUserIdFromToken();
-//   if (!userId) throw new Error('유효한 토큰이 없습니다.');
-
-//   const list = await fetchWithAuth(
-//     `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files`,
-//     { method: 'GET' }
-//   );
-//   if (!Array.isArray(list)) return [];
-//   // 폴더 경로를 저장할 Set (중복 제거용)
-//   const folderSet = new Set();
-//   const result = list
-//     .map(file => {
-//       const relativePath = file.relativePath || file.originalName || '';
-//       const segments = relativePath.split('/');
-//       // 폴더 경로 추출 (중간 경로를 모두 폴더로 인식)
-//       for (let i = 0; i < segments.length - 1; i++) {
-//         const folderPath = segments.slice(0, i + 1).join('/') + '/';
-//         folderSet.add(folderPath);
-//       }
-//       return {
-//         ...file,
-//         type: 'file',  // 파일은 'file'로 명시
-//       };
-//     });
-//   // 폴더 경로를 배열로 변환하고, 'type' 필드 추가
-//   const folders = Array.from(folderSet).map(folderPath => ({
-//     fileId: `dir__${folderPath}`,
-//     relativePath: folderPath,
-//     originalName: folderPath,
-//     type: 'folder',
-//   }));
-//   // 폴더와 파일 목록을 합쳐서 반환
-//   return [...folders, ...result];
-// };
 
 /**
  * 폴더 내 파일 목록 조회
@@ -276,29 +223,6 @@ export const getFolderFileList = async (syncFolderId, folderPath = '') => {
   return [...folders, ...result];
 };
 
-
-// /**
-//  * 개별 파일 메타데이터 조회
-//  * @param {string|number} syncFolderId  싱크 폴더 ID
-//  * @param {string} relativePath 파일의 상대경로 (subdir/to/file.txt)
-//  */
-// export const getFolderFileMeta = async (syncFolderId, relativePath) => {
-//   const userId = getUserIdFromToken();
-//   if (!userId) throw new Error('유효한 토큰이 없습니다.');
-
-//   const safePath = relativePath
-//     .split('/')
-//     .map(encodeURIComponent)
-//     .join('/');
-
-//   const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}` +
-//               `/files/${safePath}/meta`;
-              
-//   return fetchWithAuth(url, { method: 'GET' });
-
-// };
-
-
 /**
  * 개별 파일 메타데이터 조회
  * GET /users/{userId}/sync-folders/{folderId}/files/meta?path=폴더/서브폴더/파일명
@@ -307,10 +231,13 @@ export const getFolderFileMeta = async (syncFolderId, relativePath) => {
   const userId = getUserIdFromToken();
   if (!userId) throw new Error('유효한 토큰이 없습니다.');
 
-  const encoded = relativePath
-    .split('/')
-    .map(encodeURIComponent)
-    .join('/');
+  // const encoded = relativePath
+  //   .split('/')
+  //   .map(encodeURIComponent)
+  //   .join('/');
+  // 백엔드가 절대경로 형태로 저장하고 있으니, 앞에 "/" 가 없으면 붙여준다
+  const rp = relativePath.startsWith('/') ? relativePath : '/' + relativePath;
+  const encoded = rp.split('/').map(encodeURIComponent).join('/');
 
   const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}` +
               `/files/meta?path=${encoded}`;

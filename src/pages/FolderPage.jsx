@@ -27,6 +27,24 @@ const fs     = window.require('fs');
 const path   = window.require('path');
 const Buffer = window.require('buffer').Buffer;
 
+/**
+ * 서버/버킷상의 "foo/bar/latest/baz.txt" 또는
+ * "foo/bar/latest/baz.txt" 형태의 raw 경로를
+ * 로컬 디스크상의 "foo/bar/baz.txt" 로 바꿔 주는 헬퍼
+ */
+function normalizeRelPath(raw) {
+  if (!raw) return raw;
+  // 1) "/latest/<파일명>" 부분을 "/<파일명>" 으로 바꾼다.
+  const step1 = raw.replace(/\/latest\/([^/]+)$/, '/$1');
+  // 이제 "foo/bar/baz.txt/baz.txt" 식으로 중복될 수 있으므로,
+  // 마지막 두 조각이 동일하면 뒤쪽 하나를 제거
+  const parts = step1.split('/');
+  if (parts.length >= 2 && parts[parts.length - 1] === parts[parts.length - 2]) {
+    parts.splice(parts.length - 1, 1);
+  }
+  return parts.join('/');
+}
+
 export default function FolderPage() {
   const { id }     = useParams();              // sync-folder ID
   const { state }  = useLocation();
@@ -74,11 +92,6 @@ export default function FolderPage() {
          });
 
       // ── “latest/ 이하의 파일만” 남기기 ──
-      // const latestOnly = cleaned.filter(f =>
-      //   // relativePath 어딘가에 “latest/” 경로 조각이 포함되어야 합니다
-      //   f.relativePath.includes('/latest/')
-      // );    
-      // const latestOnly = cleaned.filter(f => f.cleanedPath.includes('/latest/'));
       const latestOnly = cleaned.filter(f =>
         f.cleanedPath.includes('/latest/') && f.type !== 'folder'
       );
@@ -86,13 +99,6 @@ export default function FolderPage() {
       console.log(latestOnly);
       // 같은 relativePath를 가진 파일이 있을 경우, 최신 파일만 남기기
       const fileMap = new Map();
-      // latestOnly.forEach(f => {
-      //   const relPath = f.relativePath?.trim() || f.originalName;
-      //   const existing = fileMap.get(relPath);
-      //   if (!existing || new Date(f.lastModified) > new Date(existing.lastModified)) {
-      //     fileMap.set(relPath, f);
-      //   }
-      // });
       latestOnly.forEach(f => {
         const p = f.cleanedPath;
         const prev = fileMap.get(p);
@@ -234,7 +240,6 @@ export default function FolderPage() {
   useEffect(() => {
     const logInitialFiles = async () => {
       try {
-
         const files = await getFolderFileList(id, '');
         const filteredFiles = files.filter(f => 
           typeof f === 'object' &&
@@ -242,7 +247,6 @@ export default function FolderPage() {
           !f.originalName.startsWith('.')
         );
 
-        // latest/ 이하만
         const latestOnly = filteredFiles.filter(f =>
           f.relativePath.includes('/latest/')
         );        
@@ -345,7 +349,8 @@ export default function FolderPage() {
   // ── “정보 가져오기” ──
   const handleInfo = async (relativePath) => {
     try {
-      const meta = await getFolderFileMeta(id, relativePath);
+      // const meta = await getFolderFileMeta(id, relativePath);
+      const meta = await getFolderFileMeta(id, '/' + relativePath);
       alert(JSON.stringify(meta, null, 2));
     } catch (err) {
       console.error(err);
@@ -358,7 +363,8 @@ export default function FolderPage() {
     try {
       // 항상 파일의 상대경로 문자열을 서버에 전달
       console.log('경로', relativePath);
-      const blob = await downloadFolderFile(id, relativePath);
+      // const blob = await downloadFolderFile(id, relativePath);
+      const blob = await downloadFolderFile(id, '/' + relativePath);
       const buf  = await blob.arrayBuffer();
       // 3) 저장 다이얼로그
       const savePath = path.join(folderPath, relativePath)
@@ -390,7 +396,9 @@ export default function FolderPage() {
       if (typeof fileIdOrPath === 'string') {
         displayName = fileIdOrPath;
         const files = await getFolderFileList(id, currentPath);
-        const matchingFiles = files.filter(f => f.relativePath === displayName);
+        const matchingFiles = files.filter(f =>
+          f.relativePath.replace(/^\/+/, '') === displayName
+        );        
   
         if (matchingFiles.length > 0) {
           // 최신 파일의 ID를 삭제
@@ -410,7 +418,8 @@ export default function FolderPage() {
       alert('삭제되었습니다.');
   
       // 로컬 파일 삭제
-      const localFull = path.join(folderPath, displayName);
+      const normalized = normalizeRelPath(displayName);
+      const localFull = path.join(folderPath, normalized);
       if (fs.existsSync(localFull)) {
         fs.unlinkSync(localFull);
       }
@@ -451,9 +460,7 @@ const handlefoldDelete = async () => {
       return setCtxMenu((m) => ({ ...m, visible: false }));
     }
 
-    // 1. 상위 동기화 폴더 ID & 로컬 경로
     const syncFolderId = Number(id);
-    // folderPath 는 useLocation().state.folderPath 로 받아온 동기화 루트
     const localRoot = folderPath;
     let relPath = ctxMenu.relativePath;
     if (!relPath.endsWith('/')) relPath += '/';
@@ -480,7 +487,8 @@ const handlefoldDelete = async () => {
       // 서버 삭제
       await deleteFolderFile(syncFolderId, fileId);
       // 로컬 삭제
-      const localFile = path.join(localRoot, file.relativePath);
+      const norm = normalizeRelPath(file.relativePath.replace(/^\/+|\/+$/g, ''));
+      const localFile = path.join(localRoot, norm);
       if (fs.existsSync(localFile)) {
         fs.unlinkSync(localFile);
       }

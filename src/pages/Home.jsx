@@ -133,15 +133,15 @@ export default function Home() {
       return;
     }    
 
-    if (!fs.existsSync(targetDir)) {
-      ipcRenderer.send('local-folder-added', targetDir);
-      fs.mkdirSync(targetDir, { recursive: true });
-      copyRecursive(sel, targetDir);
-    }
+    // if (!fs.existsSync(targetDir)) {
+    //   ipcRenderer.send('local-folder-added', targetDir);
+    //   fs.mkdirSync(targetDir, { recursive: true });
+    //   copyRecursive(sel, targetDir);
+    // }
     // // ① 먼저 justAdded 세트에 등록 (SyncManager 가 로컬 watcher 에서 무시하도록)
-    // ipcRenderer.send('local-folder-added', targetDir); // 무조건 보냄
-    // fs.mkdirSync(targetDir, { recursive: true });
-    // copyRecursive(sel, targetDir);
+    ipcRenderer.send('local-folder-added', targetDir); // 무조건 보냄
+    fs.mkdirSync(targetDir, { recursive: true });
+    copyRecursive(sel, targetDir);
 
     try {
       // 3) 서버에 등록할 때는 targetDir 사용
