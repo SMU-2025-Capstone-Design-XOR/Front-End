@@ -7,9 +7,9 @@
   "scripts": {
     "build": "webpack --config webpack.config.cjs",
     "start": "npm run build && electron .",
-    "pack": "electron-builder --dir",
-    "dist": "electron-builder",
-    "dist:win": "electron-builder --win",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder",
+    "dist:win": "npm run build && electron-builder --win",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "build": {
