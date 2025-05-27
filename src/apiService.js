@@ -7,7 +7,7 @@ import mime from 'mime-types';
  * JWT 토큰에서 userId(sub)를 추출하는 헬퍼 함수
  * @returns {string|null} userId 또는 토큰이 없으면 null
  */
-const getUserIdFromToken = () => {
+export const getUserIdFromToken = () => {
   const token = localStorage.getItem('token');
   if (!token) return null;
   try {
@@ -53,6 +53,56 @@ const fetchWithAuth = async (url, options = {}) => {
 const API_BASE = 'http://15.164.33.175:8080';
 
 /**** API 함수들 ****/
+
+
+/**
+ * ───────────────────────────────────────────────────────────
+ * S3 Presigned Download URL 발급
+ *
+ * GET /s3/presigned-download?key={S3_KEY}&expire={expireMinutes}
+ *
+ * @param {string} key    - S3에 저장된 파일의 전체 경로 (예:
+ *                         "users/123/sync-folder/456/folder1/report.docx/latest/report.docx")
+ * @param {number} expire - Presigned URL 유효 시간(분). 생략 시 백엔드 기본(15분) 사용
+ * @returns {Promise<string>} - S3 Presigned URL (문자열)
+ *
+ * 예시 사용:
+ *   const url = await getPresignedDownloadUrl(
+ *     'users/123/sync-folder/456/folder1/report.docx/latest/report.docx',
+ *     30
+ *   );
+ *   window.open(url, '_blank');
+ */
+export const getPresignedDownloadUrl = async (key, expire = 15) => {
+  if (!key) {
+    throw new Error('Presigned URL을 요청하려면 key가 필요합니다.');
+  }
+
+  // 인코딩: key 문자열을 URL-safe하게 변환
+  const encodedKey = key
+    .split('/')
+    .map(encodeURIComponent)
+    .join('/');
+
+  // expire 파라미터가 0 또는 음수일 경우 기본 생략 가능
+  const queryParams = [];
+  queryParams.push(`key=${encodedKey}`);
+  if (typeof expire === 'number' && expire > 0) {
+    queryParams.push(`expire=${encodeURIComponent(expire)}`);
+  }
+  const queryString = queryParams.join('&');
+
+  // fetchWithAuth로 호출하면 Blob을 반환하므로, text()로 변환 필요
+  const blob = await fetchWithAuth(
+    `${API_BASE}/s3/presigned-download?${queryString}`,
+    { method: 'GET' }
+  );
+
+  // 응답이 Blob이므로, text()로 읽어서 반환
+  const presignedUrl = await blob.text();
+  return presignedUrl;
+};
+
 
 /**
  * 싱크 폴더 등록

@@ -1,8 +1,9 @@
 // src/pages/FolderPage.jsx
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { Menu, MenuItem, getCurrentWindow } from '@electron/remote';
-import { dialog } from '@electron/remote';
+// import { Menu, MenuItem, getCurrentWindow } from '@electron/remote';
+// import { dialog } from '@electron/remote';
+import { Menu, MenuItem, getCurrentWindow, dialog, clipboard } from '@electron/remote';
 import chokidar from 'chokidar';
 const { ipcRenderer } = window.require('electron');
 import personIcon from '../assets/Home/person-24.svg';
@@ -21,6 +22,8 @@ import {
   getFolderFileMeta,
   downloadFolderFile,
   deleteFolderFile,
+  getPresignedDownloadUrl,
+  getUserIdFromToken,
 } from '../apiService';
 
 const fs     = window.require('fs');
@@ -51,6 +54,9 @@ export default function FolderPage() {
   const folderPath = state?.folderPath || '';  // 로컬 동기화 폴더 경로
   const navigate   = useNavigate();
   const username   = localStorage.getItem('currentUser') || 'User';
+
+  // ── 로그인된 사용자 아이디 (토큰에서 추출) ──
+  const currentUserId = getUserIdFromToken();
 
   // ── 헤더용 User 컨텍스트 메뉴 ── 
   const [userMenu, setUserMenu] = useState({ visible: false, x:0, y:0 });
@@ -523,7 +529,43 @@ const handlefoldDelete = async () => {
   const closeFileMenu = () => setFileMenu(m => ({ ...m, visible: false }));
 
   // 파일 메뉴 핸들러
-  // const handleFileShare    = () => alert(`’${fileMenu.item.name}‘ 공유…`);
+    // ── “공유” 클릭 시 호출되는 핸들러 ──
+    const handleFileShare = async () => {
+      try {
+        closeFileMenu();  // 메뉴 닫기
+        if (!fileMenu.item) {
+          return;
+        }
+        // ================================
+        // 1) S3 Key 구성
+        //    - backend 쪽 규칙에 따라 "users/{userId}/sync-folder/{folderId}/{filePath}" 형태여야 합니다.
+        //    - fileMenu.item.fileName: 예) "test/latest/qwer.txt"
+        //      (직전에 loadFiles()에서 cleanedPath로 `f.relativePath`를 통째로 받은 상태입니다.)
+        // ================================
+        const s3Key = `users/${currentUserId}/sync-folder/${id}/${fileMenu.item.fileName}`;
+  
+        // ================================
+        // 2) Presigned URL 요청
+        // ================================
+        const presignedUrl = await getPresignedDownloadUrl(s3Key, 30); 
+          // → 30분짜리 링크 발급. 생략하면 15분 기본.
+  
+        // ================================
+        // 3) 클립보드에 복사
+        // ================================
+        clipboard.writeText(presignedUrl);
+  
+        // ================================
+        // 4) 간단한 알림
+        // ================================
+        alert(`다운로드 링크가 클립보드에 복사되었습니다:\n${presignedUrl}`);
+        // (원한다면 window.open(presignedUrl, '_blank') 처럼 곧바로 여는 것도 가능)
+  
+      } catch (err) {
+        console.error('파일 공유 실패:', err);
+        alert('파일 공유 링크 생성에 실패했습니다.\n' + err.message);
+      }
+    };
   const handleFileVersion  = () => {
     const { fileId, fileName } = fileMenu.item;
     ipcRenderer.send('open-version-window', {
@@ -588,7 +630,7 @@ const handlefoldDelete = async () => {
         visible={fileMenu.visible}
         x={fileMenu.x} y={fileMenu.y}
         onClose={closeFileMenu}
-        // onShare={handleFileShare}
+        onShare={handleFileShare}
         onVersion={handleFileVersion}
         onInfo={handleFileInfo}
         onDownload={handleFileDownload}
