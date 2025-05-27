@@ -26,8 +26,8 @@ import {
 
 const { ipcRenderer } = window.require('electron');
 const fs = window.require('fs');
-const path = window.require('path');
-const os = window.require('os');
+import os from 'os';
+import path from 'path';
 
 
 export default function Home() {

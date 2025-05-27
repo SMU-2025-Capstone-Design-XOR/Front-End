@@ -4,8 +4,6 @@ import logOutIcon from "../assets/Context_Menu/log-out.svg";
 import '../css/folder_context.css';
 
 export const UserContextMenu = ({ x, y, onLogout, onClose }) => {
-  const menuRef = useRef(null);
-  const [adjustedY, setAdjustedY] = useState(y);
   
   // 메뉴 고정 너비와 같게
   const MENU_WIDTH = 300;

@@ -183,9 +183,6 @@ return (
                 >
                 <div className="div">
                     <p className="text-wrapper">{label}</p>
-                    {/* {formattedDate && (
-                    <p className="text-subtext-right">{formattedDate}</p>
-                    )} */}
                 </div>
                 
                 {formattedDate && (
