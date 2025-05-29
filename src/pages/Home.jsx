@@ -30,6 +30,18 @@ import os from 'os';
 import path from 'path';
 
 
+function normalizeRelPath(raw) {
+  if (!raw) return raw;
+  const parts = raw.split('/');
+  // latest가 중간에 끼어있고, 그 다음 이름이 원본 파일명과 같다면
+  const latestIndex = parts.indexOf('latest');
+  if (latestIndex > 0 && parts[latestIndex + 1] === parts[latestIndex - 1]) {
+    // latest와 그 뒤의 중복 파일명을 제거
+    parts.splice(latestIndex); // 'latest' 이후 전부 제거
+  }
+  return parts.join('/');
+}
+
 export default function Home() {
   const navigate = useNavigate();
 
@@ -133,11 +145,7 @@ export default function Home() {
       return;
     }    
 
-    // if (!fs.existsSync(targetDir)) {
-    //   ipcRenderer.send('local-folder-added', targetDir);
-    //   fs.mkdirSync(targetDir, { recursive: true });
-    //   copyRecursive(sel, targetDir);
-    // }
+
     // // ① 먼저 justAdded 세트에 등록 (SyncManager 가 로컬 watcher 에서 무시하도록)
     ipcRenderer.send('local-folder-added', targetDir); // 무조건 보냄
     fs.mkdirSync(targetDir, { recursive: true });
@@ -203,7 +211,6 @@ export default function Home() {
       // 이 경로는 SyncManager 쪽에서 무시해야 할 “방금 추가된” 경로
 
 
-      // ipcRenderer.send('sync-folder-added', created);
       ipcRenderer.send('flag-folder-added', created);
     } catch (err) {
       console.error('폴더 등록/동기화 실패:', err);
@@ -223,74 +230,83 @@ export default function Home() {
   const handleInfo   = () => { alert(`Folder ID: ${ctxMenu.folderId}`); setCtxMenu(m=>({ ...m, visible:false })); };
 
   const handleRedown = async () => {
-    try {
-      const folderId = ctxMenu.folderId;
-      const folder = syncFolders.find(f => f.id === folderId);
-      if (!folder) {
-        alert('폴더 정보를 찾을 수 없습니다.');
-        return;
-      }
-  
-      const targetDir = folder.folderPath;
-  
-      if (fs.existsSync(targetDir)) {
-        alert('이미 로컬에 폴더가 존재합니다.');
-        setCtxMenu(m => ({ ...m, visible: false }));
-        return;
-      }
-  
-      // 1) 로컬 폴더 생성
-      fs.mkdirSync(targetDir, { recursive: true });
-  
-      try {
-        // 2) 서버에서 파일 목록 조회
-        const serverFiles = await getFolderFileList(folderId);
-  
-        // 3) 서버에서 최상위 폴더 구조만 생성 (서브폴더는 생성하지 않음)
-        serverFiles
-          .filter(f => f.relativePath.endsWith('/') && !f.relativePath.includes('/'))
-          .forEach(f => {
-            const dirPath = path.join(targetDir, f.relativePath);
-            fs.mkdirSync(dirPath, { recursive: true });
-          });
-  
-        // 4) 파일 다운로드
-        for (const file of serverFiles) {
-          const rel = file.relativePath;
-  
-          // // 디렉터리는 이미 생성되었으므로, 파일만 처리
-          // if (rel.endsWith('/')) continue;
+  const folderId = ctxMenu.folderId;
+  const folder   = syncFolders.find(f => f.id === folderId);
+  if (!folder) {
+    alert('폴더 정보를 찾을 수 없습니다.');
+    return setCtxMenu(m => ({ ...m, visible: false }));
+  }
 
-          // 서브폴더 내 파일은 무시
-          if (rel.includes('/') && !rel.endsWith('/')) continue;          
-  
-          const destPath = path.join(targetDir, rel);
-  
-          try {
-            const blob = await downloadFolderFile(folderId, rel);
-            const buf = await blob.arrayBuffer();
-            fs.mkdirSync(path.dirname(destPath), { recursive: true });
-            fs.writeFileSync(destPath, Buffer.from(buf));
-          } catch (e) {
-            console.warn(`⚠️ 파일 다운로드 실패(무시): ${rel}`, e.message);
-          }
-        }
-  
-        alert('폴더 재다운로드가 완료되었습니다.');
-        setCtxMenu(m => ({ ...m, visible: false }));
-  
-      } catch (err) {
-        console.error('파일 목록 불러오기 실패:', err);
-        alert('서버에서 파일 목록을 불러오는 데 실패했습니다.');
-        setCtxMenu(m => ({ ...m, visible: false }));
-      }
-  
-    } catch (err) {
-      console.error('폴더 재다운로드 실패:', err);
-      alert('폴더 재다운로드 중 오류가 발생했습니다.');
-      setCtxMenu(m => ({ ...m, visible: false }));
+  const targetDir = folder.folderPath;
+  if (fs.existsSync(targetDir)) {
+    alert('이미 로컬에 폴더가 존재합니다.');
+    return setCtxMenu(m => ({ ...m, visible: false }));
+  }
+
+  try {
+    // 1) 로컬 폴더 생성
+    fs.mkdirSync(targetDir, { recursive: true });
+
+    // 2) 서버에서 “latest” 파일 목록 가져오기
+    const rawServerList = await getFolderFileList(folderId);
+    const fileEntries = rawServerList.filter(f =>
+      f.type === 'file' &&
+      (f.relativePath || f.originalName).includes('/latest/')
+    );
+
+    // 3) 서버 파일 메타 구성 (rawPath, relPath, lastModified)
+    const serverFiles = fileEntries.map(f => {
+      const rawPath = f.relativePath || f.originalName;           // ex: "sub/foo.txt/latest/foo.txt"
+      const relPath = normalizeRelPath(rawPath);                  // ex: "sub/foo.txt"
+      return {
+        rawPath,
+        relPath,
+        lastModified: f.lastModified,
+      };
+    });
+
+    // 4) “진짜 서브폴더” 목록 뽑아서 먼저 생성
+    const folderNames = new Set();
+    for (const { relPath } of serverFiles) {
+      const parts = relPath.split('/');
+      if (parts.length > 1) folderNames.add(parts[0]);
     }
-  };
+    for (const sub of folderNames) {
+      const absDir = path.join(targetDir, sub);
+      fs.mkdirSync(absDir, { recursive: true });
+    }
+
+    // 5) 파일 다운로드 & mtime 동기화
+    for (const { rawPath, relPath, lastModified } of serverFiles) {
+      const name = path.basename(relPath);
+      if (name.startsWith('.')) continue;  // 숨김파일 스킵
+
+      try {
+        console.warn(`🌐 폴더 내 파일 다운로드: ${rawPath}`);
+        const blob = await downloadFolderFile(folderId, rawPath);
+        const buf  = await blob.arrayBuffer();
+        const dest = path.join(targetDir, relPath);
+
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.writeFileSync(dest, Buffer.from(buf));
+
+        // mtime 동기화
+        const mtime = new Date(lastModified).getTime() / 1000;
+        fs.utimesSync(dest, mtime, mtime);
+      } catch (e) {
+        console.warn(`⚠️ 다운로드 실패(무시): ${rawPath}`, e.message);
+      }
+    }
+
+    alert('폴더 재다운로드가 완료되었습니다.');
+  } catch (err) {
+    console.error('폴더 재다운로드 실패:', err);
+    alert('폴더 재다운로드 중 오류가 발생했습니다.');
+  } finally {
+    setCtxMenu(m => ({ ...m, visible: false }));
+  }
+};
+
   
   const handleDelete = async () => {
     if (!confirm('삭제하시겠습니까?')) return setCtxMenu(m=>({ ...m, visible:false }));
@@ -299,7 +315,6 @@ export default function Home() {
     setSyncFolders(Array.isArray(refreshed)?refreshed:[]);
 
     // → 바로 SyncManager에게도 알려주기
-    // ipcRenderer.send('sync-folder-removed', { folderId: ctxMenu.folderId });
     {
       // 삭제 직전에, 현재 띄워진 syncFolders 배열에서 해당 folderPath를 찾아서
       const toDel = syncFolders.find(f => f.id === ctxMenu.folderId);
@@ -372,17 +387,6 @@ export default function Home() {
               </div>
             ))
         }
-        {/* {syncFolders.map(folder => (
-          <div
-            key={folder.id}
-            className="sync-wrapper"
-            onDoubleClick={()=>onDoubleClick(folder)}
-            onContextMenu={showCtx(folder.id)}
-          >
-            <img src={syncIcon} alt=""/>
-            <div className="sync-label">{folder.folderPath.split('/').pop()}</div>
-          </div>
-        ))} */}
       </div>
 
       {/* FolderContextMenu */}

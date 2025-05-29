@@ -184,10 +184,6 @@ export const downloadFolderFile = async (syncFolderId, relativePath) => {
     .map(encodeURIComponent)
     .join('/');
 
-  // 백엔드가 절대경로 형태로 저장하고 있으니, 앞에 "/" 가 없으면 붙여준다
-  // const rp = relativePath.startsWith('/') ? relativePath : '/' + relativePath;
-  // const encoded = rp.split('/').map(encodeURIComponent).join('/');
-
   const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}` +
               `/files/download?path=${encoded}`;
   return fetchWithAuth(url, { method: 'GET' });
@@ -275,9 +271,6 @@ export const getFolderFileMeta = async (syncFolderId, relativePath) => {
     .split('/')
     .map(encodeURIComponent)
     .join('/');
-  // 백엔드가 절대경로 형태로 저장하고 있으니, 앞에 "/" 가 없으면 붙여준다
-  // const rp = relativePath.startsWith('/') ? relativePath : '/' + relativePath;
-  // const encoded = rp.split('/').map(encodeURIComponent).join('/');
 
   const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}` +
               `/files/meta?path=${encoded}`;
