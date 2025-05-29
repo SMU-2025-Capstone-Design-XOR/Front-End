@@ -283,12 +283,6 @@ const handleLocalChange = async (filePath, id, root) => {
         sha256: '',
         updatedAt: Date.now(),
       });      
-      // if (prevClientMapRef.current[id][rel + '/']) return;
-      // prevClientMapRef.current[id][rel + '/'] = {
-      //   type: 'directory',
-      //   sha256: '',
-      //   updatedAt: Date.now(),
-      // };
 
       console.log(`📁 [SyncManager] 서브폴더 추가 → ${rel}/`);
       ipcRenderer.send('sub-folder-added', { folderId: id, relativePath: rel });
@@ -306,7 +300,6 @@ const handleLocalChange = async (filePath, id, root) => {
       if (clientMap.has(rel)) {
         console.log(`📁 [SyncManager] 서브폴더 삭제 → ${rel}`);
 
-        // const serverFiles = await getFolderFileList(id);
         // 서버 메타 가져온 뒤, normalizeRelPath
         const rawServerFiles = await getFolderFileList(id);
         const serverFiles = rawServerFiles.map(f => ({
@@ -366,30 +359,6 @@ const handleLocalChange = async (filePath, id, root) => {
       const folderId = created.id;
   
       // 2) 로컬 전체 스캔 (Home.jsx 코드 참고)
-      // const clientFiles = [];
-      // function walk(currentDir) {
-      //   fs.readdirSync(currentDir, { withFileTypes: true }).forEach(entry => {
-      //     const full = path.join(currentDir, entry.name);
-      //     const rel  = path.relative(absPath, full).replace(/\\/g, '/');
-      //     if (entry.isFile()) {
-      //       const buf  = fs.readFileSync(full);
-      //       const stat = fs.statSync(full);
-      //       clientFiles.push({
-      //         originalName: rel,
-      //         relativePath: rel,
-      //         size: stat.size,
-      //         hash: crypto.createHash('sha256').update(buf).digest('hex'),
-      //         mimeType: mime.lookup(full) || 'application/octet-stream',
-      //         lastModified: new Date(stat.mtimeMs).toISOString(),
-      //         // versionNumber: 1,         // 업로드 직후엔 1 또는 서버가 응답해준 값을 덮어쓰기
-      //         // versionType: 'SNAPSHOT',  // 또는 'DIFF'
-      //       });
-      //     } else if (entry.isDirectory()) {
-      //       walk(full);
-      //     }
-      //   });
-      // }
-      // walk(absPath);
       const clientFiles = buildClientFiles(absPath);
   
       // 3) 메타 동기화 요청
@@ -399,7 +368,6 @@ const handleLocalChange = async (filePath, id, root) => {
       // 4) 서버에 업로드
       for (const rel of filesToUpload) {
         await uploadFile(folderId, path.join(absPath, rel), rel);
-        // ipcRenderer.send('sync-file-added', { folderId, relativePath: rel });
       }
 
       // ● “새로 추가된 폴더”는 이미 여기서 완전 동기화했으므로
@@ -677,7 +645,6 @@ useEffect(() => {
             const rawServerList = await getFolderFileList(id);
             // “진짜 파일” 목록 추출
             const fileEntries = rawServerList.filter(f => f.type === 'file' && (f.relativePath || f.originalName).includes('/latest/'));
-            console.log(fileEntries);
             const serverFiles = fileEntries.map(f => {
               const rawPath = f.relativePath || f.originalName;   // e.g. "test/foo.txt/latest/foo.txt"
               const relPath = normalizeRelPath(rawPath);          // e.g. "test/foo.txt"
@@ -689,7 +656,6 @@ useEffect(() => {
               };
             });
             const filesSet = new Set(serverFiles.map(f => f.relPath));
-            // console.log(filesSet);
 
             // “진짜 폴더” 목록 추출 (파일 기반 폴더 제거)
             const folderNames = new Set();
@@ -701,8 +667,6 @@ useEffect(() => {
               }
             }
             const dirEntries = Array.from(folderNames);  // e.g. ['test', 'sub1']
-
-            // console.log(dirEntries);
 
             // ── 전체 재다운로드 (로컬이 없을 때) ──
             if (!fs.existsSync(root)) {
