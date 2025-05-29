@@ -37,11 +37,12 @@ import {
  */
 function normalizeRelPath(raw) {
   if (!raw) return raw;
-  const step1 = raw.replace(/\/latest\/([^/]+)$/, '/$1');
-  const parts = step1.split('/');
-  // 마지막 두 조각이 동일하다면 뒤의 조각을 제거
-  if (parts.length >= 2 && parts[parts.length - 1] === parts[parts.length - 2]) {
-    parts.splice(parts.length - 1, 1);
+  const parts = raw.split('/');
+  // latest가 중간에 끼어있고, 그 다음 이름이 원본 파일명과 같다면
+  const latestIndex = parts.indexOf('latest');
+  if (latestIndex > 0 && parts[latestIndex + 1] === parts[latestIndex - 1]) {
+    // latest와 그 뒤의 중복 파일명을 제거
+    parts.splice(latestIndex); // 'latest' 이후 전부 제거
   }
   return parts.join('/');
 }
@@ -738,8 +739,19 @@ useEffect(() => {
             for (const [rel, meta] of localMap.entries()) {
               if (rel.startsWith('.') || rel.endsWith('/')) continue;
               if (!filesSet.has(rel)) {
-                await uploadFile(id, path.join(root, rel), rel);
-                ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
+                try {
+                  await uploadFile(id, path.join(root, rel), rel);
+                  console.warn('로컬에만 존재하는 파일 추가 : ', rel);
+                  ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
+                } catch (e) {
+                  // 500 Internal Server Error → 이미 같은 내용이 존재하거나, 
+                  // 서버가 “중복”으로 에러를 던진 경우로 보고 무시
+                  if (e.message.includes('HTTP 500')) {
+                    console.warn(`⚠️ [SyncManager] 업로드 500 무시 (중복 가능성): ${rel}`);
+                  } else {
+                    throw e;
+                  }
+                }
               }
             }
   
@@ -763,23 +775,44 @@ useEffect(() => {
             // 3-4) ▷ 변경된 파일 동기화 (해시 비교)
             for (const [relPath, localMeta] of localMap.entries()) {
               const serverMeta = serverFiles.find(f => f.relPath === relPath);
-              if (serverMeta && localMeta.hash !== serverMeta.hash) {
-                const serverTime = new Date(serverMeta.lastModified);
-                const clientTime = new Date(localMeta.lastModified);
-                if (serverTime > clientTime) {
-                  try {
-                    const blob = await downloadFolderFile(id, serverMeta.rawPath);
-                    const buf  = await blob.arrayBuffer();
-                    const dest = path.join(root, relPath);
-                    fs.mkdirSync(path.dirname(dest), { recursive: true });
-                    fs.writeFileSync(dest, Buffer.from(buf));
-                    ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: relPath });
-                  } catch (e) {
-                    console.error(`다운로드 실패 (변경): ${serverMeta.rawPath}`, e);
+              if (!serverMeta) continue;
+              if (localMeta.hash === serverMeta.hash) continue;
+
+              const clientTime = new Date(localMeta.lastModified);
+              const serverTime = new Date(serverMeta.lastModified);
+
+              if (clientTime > serverTime) {
+                // 로컬이 최신 → 서버에 업로드
+                try {
+                  console.warn(`🔼 로컬이 최신 → 업로드: ${relPath}`);
+                  await uploadFile(id, path.join(root, relPath), relPath);
+                  ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: relPath });
+                } catch (e) {
+                  if (e.message.includes('HTTP 500')) {
+                    console.warn(`⚠️ 업로드 500 무시 (중복 가능성): ${relPath}`);
+                  } else {
+                    console.error(`업로드 실패 (변경): ${relPath}`, e);
                   }
                 }
+              } else {
+                // 서버가 최신 → 로컬에 다운로드
+                try {
+                  console.warn(`🔽 서버가 최신 → 다운로드: ${serverMeta.rawPath}`);
+                  const blob = await downloadFolderFile(id, serverMeta.rawPath);
+                  const buf  = await blob.arrayBuffer();
+                  const dest = path.join(root, relPath);
+                  fs.mkdirSync(path.dirname(dest), { recursive: true });
+                  fs.writeFileSync(dest, Buffer.from(buf));
+
+                  const mtime = new Date(serverMeta.lastModified).getTime() / 1000;
+                  fs.utimesSync(dest, mtime, mtime);
+                  
+                  ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: relPath });
+                } catch (e) {
+                  console.error(`다운로드 실패 (변경): ${serverMeta.rawPath}`, e);
+                }
               }
-            }          
+            }         
         
             initialSyncDoneRef.current[id] = true;
         

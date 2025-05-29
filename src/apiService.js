@@ -148,12 +148,6 @@ export const uploadFile = async (syncFolderId, localFilePath, relativePath) => {
   const mimeType   = mime.lookup(localFilePath) || 'application/octet-stream';
 
   // 상대경로 중 “파일명”을 제외한 디렉터리 경로만 전달
-  // const folderPath = (() => {
-  //   const dir = path.dirname(relativePath);
-  //   // node path.dirname("file.txt") === "." 이므로,
-  //   // "."인 경우에는 빈 문자열로 바꿔야 백엔드가 루트로 인식합니다.
-  //   return dir === '.' ? '' : dir.replace(/\\/g, '/');
-  // })();
   let folderParam = path.dirname(relativePath).replace(/\\/g, '/');
   if (folderParam === '.' || folderParam === '/') folderParam = '';
 
@@ -162,10 +156,6 @@ export const uploadFile = async (syncFolderId, localFilePath, relativePath) => {
   // FormData 준비
   const formData = new FormData();
   formData.append('file', blob, fileName);
-  // formData.append('relativePath', relativePath);
-  // if (folderPath) {
-  //   formData.append('relativePath', folderPath);
-  // }
   // 항상 relativePath 키를 넘깁니다 (빈 문자열이어도)
   formData.append('relativePath', folderParam);  
 
