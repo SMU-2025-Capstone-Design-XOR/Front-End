@@ -676,11 +676,17 @@ useEffect(() => {
             // ─── 서버 전체 리스트 가져오기
             const rawServerList = await getFolderFileList(id);
             // “진짜 파일” 목록 추출
-            const fileEntries = rawServerList.filter(f => f.type === 'file');
+            const fileEntries = rawServerList.filter(f => f.type === 'file' && (f.relativePath || f.originalName).includes('/latest/'));
+            console.log(fileEntries);
             const serverFiles = fileEntries.map(f => {
               const rawPath = f.relativePath || f.originalName;   // e.g. "test/foo.txt/latest/foo.txt"
               const relPath = normalizeRelPath(rawPath);          // e.g. "test/foo.txt"
-              return { rawPath, relPath, lastModified: f.lastModified };
+              return { 
+                rawPath,
+                relPath,
+                lastModified: f.lastModified,
+                hash: f.hash || f.sha256 || f.contentHash || null,
+              };
             });
             const filesSet = new Set(serverFiles.map(f => f.relPath));
             // console.log(filesSet);
@@ -709,7 +715,7 @@ useEffect(() => {
                 ipcRenderer.send('sub-folder-added', { folderId: id, relativePath: `${sub}/` });
               }
               // (D2) 파일 다운로드
-              for (const { rawPath, relPath } of serverFiles) {
+              for (const { rawPath, relPath, lastModified } of serverFiles) {
                 const name = path.basename(relPath);
                 if (name.startsWith('.')) continue;
                 try {
@@ -719,6 +725,11 @@ useEffect(() => {
                   const dest = path.join(root, relPath);
                   fs.mkdirSync(path.dirname(dest), { recursive: true });
                   fs.writeFileSync(dest, Buffer.from(buf));
+
+                  // ⏰ mtime 동기화
+                  const mtime = new Date(lastModified).getTime() / 1000;
+                  fs.utimesSync(dest, mtime, mtime);
+
                   ipcRenderer.send('sync-file-added', { folderId: id, relativePath: relPath });
                 } catch (e) {
                   console.warn(`다운로드 실패 (전체): ${rawPath}`, e);
@@ -744,8 +755,6 @@ useEffect(() => {
                   console.warn('로컬에만 존재하는 파일 추가 : ', rel);
                   ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
                 } catch (e) {
-                  // 500 Internal Server Error → 이미 같은 내용이 존재하거나, 
-                  // 서버가 “중복”으로 에러를 던진 경우로 보고 무시
                   if (e.message.includes('HTTP 500')) {
                     console.warn(`⚠️ [SyncManager] 업로드 500 무시 (중복 가능성): ${rel}`);
                   } else {
@@ -756,7 +765,7 @@ useEffect(() => {
             }
   
             // 3-3) ▷ 서버 전용 파일 → 다운로드
-            for (const { rawPath, relPath } of serverFiles) {
+            for (const { rawPath, relPath, lastModified } of serverFiles) {
               if (relPath.startsWith('.') || relPath.endsWith('/')) continue;
               if (!localMap.has(relPath)) {
                 try {
@@ -765,6 +774,10 @@ useEffect(() => {
                   const dest = path.join(root, relPath);
                   fs.mkdirSync(path.dirname(dest), { recursive: true });
                   fs.writeFileSync(dest, Buffer.from(buf));
+
+                  const mtime = new Date(lastModified).getTime() / 1000;
+                  fs.utimesSync(dest, mtime, mtime);
+
                   ipcRenderer.send('sync-file-added', { folderId: id, relativePath: relPath });
                 } catch (e) {
                   console.error(`다운로드 실패: ${rawPath}`, e);
@@ -776,7 +789,7 @@ useEffect(() => {
             for (const [relPath, localMeta] of localMap.entries()) {
               const serverMeta = serverFiles.find(f => f.relPath === relPath);
               if (!serverMeta) continue;
-              if (localMeta.hash === serverMeta.hash) continue;
+              if (localMeta.hash && serverMeta.hash && localMeta.hash === serverMeta.hash) continue;
 
               const clientTime = new Date(localMeta.lastModified);
               const serverTime = new Date(serverMeta.lastModified);
