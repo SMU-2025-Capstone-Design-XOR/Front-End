@@ -144,9 +144,6 @@ app.whenReady().then(() => {
   ipcMain.on('sub-folder-removed', (e, d) => broadcast('sub-folder-removed', d));
   ipcMain.on('sub-folder-removed-server', (e, d) => broadcast('sub-folder-removed', d));
 
-  ipcMain.on('user-logged-in', (e, d) => broadcast('user-logged-in', d));
-  ipcMain.on('user-logged-out', (e, d) => broadcast('user-logged-out', d));
-
   ipcMain.handle('open-folder-dialog', async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
       properties: ['openDirectory']

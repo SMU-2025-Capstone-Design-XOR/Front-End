@@ -68,8 +68,6 @@ export default function FolderPage() {
   const handleLogout = () => {
     if (window.confirm('로그아웃하시겠습니까?')) {
       localStorage.clear();
-      // ipcRenderer.send('user-logged-out');
-
       navigate('/');
     }
   };
@@ -80,7 +78,7 @@ export default function FolderPage() {
   const loadFiles = async (subPath = '') => {
     try {
       const raw = await getFolderFileList(id, subPath);
-  
+      // console.log(raw);
       const visible = raw.filter(f => {
         const rel = (f.relativePath || f.originalName || '')
                       .replace(/^\/+|\/+$/g, '');
@@ -105,9 +103,8 @@ export default function FolderPage() {
           fileMap.set(key, f);
         }
       });
-      console.log(latestOnly);
+      // console.log(latestOnly);
       const uniqueFiles = Array.from(fileMap.values());
-  
       // 4) 원하는 “레벨”로 그룹핑
       //    - subPath==='' → parts[0] (첫 번째)  
       //    - subPath!==' '→ subPath 다음(parts[1]) 로
@@ -151,6 +148,9 @@ export default function FolderPage() {
             });
           }
         });
+      
+      console.log(fileItems);       
+      console.log(dirItems);
   
       setFileList([...dirItems, ...fileItems]);
       setCurrentPath(subPath);

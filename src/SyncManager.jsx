@@ -37,13 +37,7 @@ import {
  */
 function normalizeRelPath(raw) {
   if (!raw) return raw;
-  // 예시: "test/asd.txt/latest/asd.txt" → "test/asd.txt"
-  // 실제 구조가 "test/asd.txt/latest/asd.txt"로 고정되어 있다면 아래 정규식으로 가능합니다.
-  //   - 맨 뒤의 '/latest/<파일명>' 부분을 '/<파일명>'으로 바꾼 뒤, 한 번 더 꺾어 불필요한 'latest' 폴더를 제거
   const step1 = raw.replace(/\/latest\/([^/]+)$/, '/$1');
-  // 이제 "test/asd.txt/asd.txt"가 되는데, 맨 뒤 '파일명'을 중복으로 제거
-  // (원본이 "test/asd.txt/latest/asd.txt"일 때만 해당)
-  // 안전하게 처리하려면 낱개 경로 조각을 비교해야 하지만, 대부분은 위 한 줄로 해결됩니다.
   const parts = step1.split('/');
   // 마지막 두 조각이 동일하다면 뒤의 조각을 제거
   if (parts.length >= 2 && parts[parts.length - 1] === parts[parts.length - 2]) {
@@ -96,19 +90,6 @@ export default function SyncManager() {
 
   // 파일 및 서브 폴더 관련 핸들러
 
-  // ── Helper: 빈 디렉터리 삭제 ──
-  function cleanupEmptyDirs(dir) {
-    fs.readdirSync(dir).forEach(name => {
-      const full = path.join(dir, name);
-      if (fs.statSync(full).isDirectory()) {
-        cleanupEmptyDirs(full);
-        if (fs.readdirSync(full).length === 0){
-          fs.rmdirSync(full);
-          console.warn(`📁 [SyncManager] 폴더 삭제: ${full}`);
-        }
-      }
-    });
-  }
 
   // 로컬 파일 동기화 관련 핸들러
 
@@ -119,11 +100,6 @@ export default function SyncManager() {
         console.log(`🛑 무시된 파일: ${rel}`);
         return;
       }
-      // 서브폴더 내 파일이 다운로드가 되지 않는 상황이기에 주석처리함.(빈 화면 방지)
-      // const localFiles = buildClientFiles(root);
-      // const localPaths = new Set(localFiles.map(f => f.relativePath));
-      
-      // console.log(`📂 [handleLocalAdd] 파일 추가됨: ${rel}`);
   
       const stat = fs.statSync(fullPath);
       const buf = fs.readFileSync(fullPath);
@@ -178,32 +154,6 @@ export default function SyncManager() {
       const clientMap = prevClientMapRef.current[id] || new Map();
       clientMap.set(rel, newFileMeta);
 
-      // for (const [serverRel, serverMetaItem] of serverMap.entries()) {
-      //   if (serverRel.endsWith('/')) continue; // ← 🛠 폴더 엔트리는 무시
-
-      //   if (!localPaths.has(serverRel)) {
-      //     console.warn(`☁️ 서버에만 있음 → 로컬로 다운로드: ${serverRel}`);
-      //     const blob = await downloadFolderFile(id, serverRel);
-      //     const arrayBuf = await blob.arrayBuffer();
-      //     const dest = path.join(root, serverRel);
-      //     fs.mkdirSync(path.dirname(dest), { recursive: true });
-      //     fs.writeFileSync(dest, Buffer.from(arrayBuf));
-      //     ipcRenderer.send('sync-file-added', { folderId: id, relativePath: serverRel });
-  
-      //     const stat = fs.statSync(dest);
-      //     const buf = fs.readFileSync(dest);
-      //     const downloadedMeta = {
-      //       originalName: path.basename(dest),
-      //       relativePath: serverRel,
-      //       size: stat.size,
-      //       hash: crypto.createHash('sha256').update(buf).digest('hex'),
-      //       mimeType: mime.lookup(dest) || 'application/octet-stream',
-      //       lastModified: new Date(stat.mtimeMs).toISOString()
-      //     };
-      //     clientMap.set(serverRel, downloadedMeta);
-      //   }
-      // }
-
       prevClientMapRef.current[id] = clientMap;
   
     } catch (e) {
@@ -245,10 +195,6 @@ const handleLocalChange = async (filePath, id, root) => {
     }));
     const serverMap   = new Map(serverFiles.map(f => [f.relativePath, f]));
     const serverMeta  = serverMap.get(rel);    
-    // // 2. 서버 메타 조회
-    // const serverFiles = await getFolderFileList(id);
-    // const serverMap   = new Map(serverFiles.map(f => [f.relativePath, f]));
-    // const serverMeta  = serverMap.get(rel);
 
     if (serverMeta) {
       // 3. 해시가 다르면 업/다운 판단
@@ -257,16 +203,6 @@ const handleLocalChange = async (filePath, id, root) => {
         const serverTime = new Date(serverMeta.lastModified);
         if (clientTime > serverTime) {
           console.warn(`📁 변경이 최신 → 업로드: ${rel}`);
-          // try {
-          //   await uploadFile(id, filePath, rel);
-          // } catch (e) {
-          //   // 만약 서버에서 500을 던진다면, “이미 같은 경로에 동일 내용이 있거나” 업로드가 불필요한 상황이라고 판단하고 무시
-          //   if (e.message.includes('HTTP 500')) {
-          //     console.warn(`⚠️ [SyncManager] 업로드 500 무시 (이미 최신일 수 있음): ${rel}`);
-          //   } else {
-          //     throw e;
-          //   }
-          // }
           await uploadFile(id, filePath, rel);
         } else {
           console.warn(`📁 서버가 최신 → 다운로드: ${rel}`);
@@ -288,7 +224,6 @@ const handleLocalChange = async (filePath, id, root) => {
     }
 
     // 5. 클라이언트 맵 갱신
-    // const clientMap = prevClientMapRef.current[id] || new Map();
     clientMap.set(rel, changedMeta);
     prevClientMapRef.current[id] = clientMap;
 
@@ -313,16 +248,6 @@ const handleLocalChange = async (filePath, id, root) => {
         console.warn(`삭제된 파일 : ${rel}`);
         return;
       }      
-
-      // const serverList = await getFolderFileList(id);
-      // const meta       = serverList.find(f =>
-      //   f.relativePath === rel ||
-      //   // 혹시 originalName 만 있는 경우를 대비해
-      //   f.originalName === rel
-      // );
-      // const fileId     = meta?.id ?? meta?.fileId;
-      // if (!fileId) return console.warn(`삭제된 파일 : ${rel}`);
-      
       // 서버에 DELETE 요청
       console.warn(`📁 [SyncManager] 서버에 삭제 요청 → folderId=${id}, fileId=${fileId}`);
       await deleteFolderFile(id, fileId);
@@ -505,22 +430,6 @@ const handleLocalChange = async (filePath, id, root) => {
     setFolders(prev => prev.filter(f => f.id !== id));
   }
   
-  // // ── 로그아웃 시 플래그 및 상태 초기화 ──
-  // useEffect(() => {
-  //   const onLogout = () => {
-  //     // 다음 로그인 때 다시 초기 로드 & doSync()가 돌도록 모두 리셋
-  //     autoRegisteredRef.current   = false;
-  //     initialSyncDoneRef.current  = {};
-  //     setFolders([]);
-  //   };
-  //   ipcRenderer.on('user-logged-out', onLogout);
-  //   return () => {
-  //     ipcRenderer.removeListener('user-logged-out', onLogout);
-  //   };
-  // }, []);
-
-
-
   // ── 컴포넌트 첫 렌더링 시 “initialSyncDoneRef” 한 번만 초기화 ──
   useEffect(() => {
     initialSyncDoneRef.current = {};
@@ -762,46 +671,57 @@ useEffect(() => {
               }
               throw e;
             }       
-        
-            // 로컬 폴더가 존재하지 않는 경우 전체 재다운로드
+
+            // ─── 서버 전체 리스트 가져오기
+            const rawServerList = await getFolderFileList(id);
+            // “진짜 파일” 목록 추출
+            const fileEntries = rawServerList.filter(f => f.type === 'file');
+            const serverFiles = fileEntries.map(f => {
+              const rawPath = f.relativePath || f.originalName;   // e.g. "test/foo.txt/latest/foo.txt"
+              const relPath = normalizeRelPath(rawPath);          // e.g. "test/foo.txt"
+              return { rawPath, relPath, lastModified: f.lastModified };
+            });
+            const filesSet = new Set(serverFiles.map(f => f.relPath));
+            // console.log(filesSet);
+
+            // “진짜 폴더” 목록 추출 (파일 기반 폴더 제거)
+            const folderNames = new Set();
+            for (const { relPath } of serverFiles) {
+              const parts = relPath.split('/');
+              // parts.length>1 이면 parts[0] 은 진짜 서브폴더
+              if (parts.length > 1) {
+                folderNames.add(parts[0]);
+              }
+            }
+            const dirEntries = Array.from(folderNames);  // e.g. ['test', 'sub1']
+
+            // console.log(dirEntries);
+
+            // ── 전체 재다운로드 (로컬이 없을 때) ──
             if (!fs.existsSync(root)) {
-              console.warn(`📁 [SyncManager] 로컬 폴더가 사라졌습니다. 재생성 후 전체 다운로드 → ${root}`);
               fs.mkdirSync(root, { recursive: true });
 
-              const rawServerList = await getFolderFileList(id);
-              const serverList = rawServerList.map(f => ({
-                ...f,
-                relativePath: normalizeRelPath(f.relativePath || f.originalName),
-              }));
-
-              for (const f of serverList) {
-                const rel = f.relativePath;
-                // || f.originalName;
-                const dest = path.join(root, rel);
-                // 1) 디렉터리면 폴더 생성만
-                if (rel.endsWith('/')) {
-                  if (!fs.existsSync(dest)) {
-                    fs.mkdirSync(dest, { recursive: true });
-                    ipcRenderer.send('sub-folder-added', { folderId: id, relativePath: rel });
-                  }
-                  continue;
-                }
-                // 2) 루트에 있는 파일만 다운로드 (서브폴더 내 파일 제외)
-                // 만약 서브폴더 내 파일 다운로드가 구현된다면, if문만 제거하면 된다.
+              // (D1) 메인폴더는 이미 root 로 만들어졌으니, 여기선 "서브폴더"만
+              for (const sub of dirEntries) {
+                const absDir = path.join(root, sub);
+                fs.mkdirSync(absDir, { recursive: true });
+                ipcRenderer.send('sub-folder-added', { folderId: id, relativePath: `${sub}/` });
+              }
+              // (D2) 파일 다운로드
+              for (const { rawPath, relPath } of serverFiles) {
+                const name = path.basename(relPath);
+                if (name.startsWith('.')) continue;
                 try {
-                  const blob = await downloadFolderFile(id, rel);
-                  const buf = await blob.arrayBuffer();
+                  console.warn(`🌐 파일 다운로드: ${rawPath}`);
+                  const blob = await downloadFolderFile(id, rawPath);
+                  const buf  = await blob.arrayBuffer();
+                  const dest = path.join(root, relPath);
                   fs.mkdirSync(path.dirname(dest), { recursive: true });
                   fs.writeFileSync(dest, Buffer.from(buf));
-                  ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
+                  ipcRenderer.send('sync-file-added', { folderId: id, relativePath: relPath });
                 } catch (e) {
-                  if (e.message.startsWith('HTTP 404')) {
-                    console.warn(`📁 [SyncManager] 다운로드 실패 (404): ${rel}`);
-                  } else {
-                    console.error(`📁 [SyncManager] 다운로드 실패: ${rel}`, e);
-                  }
-                }            
-  
+                  console.warn(`다운로드 실패 (전체): ${rawPath}`, e);
+                }
               }
               initialSyncDoneRef.current[id] = true;
               return;
@@ -813,67 +733,53 @@ useEffect(() => {
             const localList = buildClientFiles(root);
             const localMap  = new Map(localList.map(f => [f.relativePath, f]));
   
-            // 3-2) 서버 전체 메타 수집
-            // const serverList = await getFolderFileList(id);
-            const rawServerList = await getFolderFileList(id);
-            const serverList = rawServerList.map(f => ({
-              ...f,
-              relativePath: normalizeRelPath(f.relativePath || f.originalName),
-            }));            
-            const serverMap  = new Map(serverList.map(f => [f.relativePath, f]));
   
-            // 3-3) ▷ 로컬에만 있는 파일 → 서버로 업로드
-            for (const [rel, _localMeta] of localMap.entries()) {
-              // skip 숨김파일/폴더, 그리고 디렉터리
+            // 3-2) ▷ 로컬 전용 파일 → 업로드
+            for (const [rel, meta] of localMap.entries()) {
               if (rel.startsWith('.') || rel.endsWith('/')) continue;
-              if (!serverMap.has(rel)) {
-                console.warn(`☁️ 로컬 전용 파일 → 업로드: ${rel}`);
+              if (!filesSet.has(rel)) {
                 await uploadFile(id, path.join(root, rel), rel);
                 ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
               }
             }
   
-            // 3-4) ▷ 서버에만 있는 파일 → 로컬로 다운로드 (서브폴더 내 파일 제외)
-            for (const [rel, _serverMeta] of serverMap.entries()) {
-              // skip 폴더 엔트리, 숨김파일
-              if (rel.endsWith('/') || rel.startsWith('.')) continue;
-              // only download root-level files
-              // (!localMap.has(rel) && !rel.includes('/'))
-              if (!localMap.has(rel)) {
-                console.warn(`☁️ 서버 전용 파일 → 다운로드: ${rel}`);
-                const blob = await downloadFolderFile(id, rel);
-                const buf  = await blob.arrayBuffer();
-                const dest = path.join(root, rel);
-                fs.mkdirSync(path.dirname(dest), { recursive: true });
-                fs.writeFileSync(dest, Buffer.from(buf));
-                ipcRenderer.send('sync-file-added', { folderId: id, relativePath: rel });
+            // 3-3) ▷ 서버 전용 파일 → 다운로드
+            for (const { rawPath, relPath } of serverFiles) {
+              if (relPath.startsWith('.') || relPath.endsWith('/')) continue;
+              if (!localMap.has(relPath)) {
+                try {
+                  const blob = await downloadFolderFile(id, rawPath);
+                  const buf  = await blob.arrayBuffer();
+                  const dest = path.join(root, relPath);
+                  fs.mkdirSync(path.dirname(dest), { recursive: true });
+                  fs.writeFileSync(dest, Buffer.from(buf));
+                  ipcRenderer.send('sync-file-added', { folderId: id, relativePath: relPath });
+                } catch (e) {
+                  console.error(`다운로드 실패: ${rawPath}`, e);
+                }
               }
-            }
+            }          
   
-            // 3-5) ▷ 변경된 파일 동기화 (해시 비교)
-            for (const [rel, localMeta] of localMap.entries()) {
-              if (rel.startsWith('.') || rel.endsWith('/')) continue;
-              const serverMeta = serverMap.get(rel);
-              if (serverMeta) {
-                if (localMeta.hash !== serverMeta.hash) {
-                  const clientTime = new Date(localMeta.lastModified);
-                  const serverTime = new Date(serverMeta.lastModified);
-                  if (clientTime > serverTime) {
-                    console.warn(`🔼 로컬이 최신 → 업로드: ${rel}`);
-                    await uploadFile(id, path.join(root, rel), rel);
-                    ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: rel });
-                  } else {                 
-                    console.warn(`🔽 서버가 최신 → 다운로드: ${rel}`);
-                    const blob = await downloadFolderFile(id, rel);
+            // 3-4) ▷ 변경된 파일 동기화 (해시 비교)
+            for (const [relPath, localMeta] of localMap.entries()) {
+              const serverMeta = serverFiles.find(f => f.relPath === relPath);
+              if (serverMeta && localMeta.hash !== serverMeta.hash) {
+                const serverTime = new Date(serverMeta.lastModified);
+                const clientTime = new Date(localMeta.lastModified);
+                if (serverTime > clientTime) {
+                  try {
+                    const blob = await downloadFolderFile(id, serverMeta.rawPath);
                     const buf  = await blob.arrayBuffer();
-                    const dest = path.join(root, rel);
+                    const dest = path.join(root, relPath);
                     fs.mkdirSync(path.dirname(dest), { recursive: true });
                     fs.writeFileSync(dest, Buffer.from(buf));
-                    ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: rel });
+                    ipcRenderer.send('sync-file-updated', { folderId: id, relativePath: relPath });
+                  } catch (e) {
+                    console.error(`다운로드 실패 (변경): ${serverMeta.rawPath}`, e);
                   }
                 }
               }
-            }
+            }          
         
             initialSyncDoneRef.current[id] = true;
         

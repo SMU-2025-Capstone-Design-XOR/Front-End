@@ -325,7 +325,6 @@ export default function Home() {
       localStorage.removeItem('token');
       localStorage.removeItem('currentUser');
       localStorage.removeItem('rememberedUsername');
-      // ipcRenderer.send('user-logged-out');
 
       navigate('/');
     }
