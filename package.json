@@ -1,5 +1,5 @@
 {
-  "name": "xor_project",
+  "name": "xor",
   "version": "1.0.0",
   "description": "",
   "type": "module",
@@ -23,7 +23,7 @@
         "nsis",
         "zip"
       ],
-      "icon": "assets/icon.ico"
+      "icon": "src/assets/ICON/4.ico"
     },
     "directories": {
       "output": "release-builds"
