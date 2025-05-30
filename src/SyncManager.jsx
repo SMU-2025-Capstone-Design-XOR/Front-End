@@ -250,13 +250,13 @@ const handleLocalChange = async (filePath, id, root) => {
         return;
       }      
       // 서버에 DELETE 요청
-      console.warn(`📁 [SyncManager] 서버에 삭제 요청 → folderId=${id}, fileId=${fileId}`);
+      console.warn(`📁 로컬에서 파일 삭제가 감지됨 → folderId=${id}, fileId=${fileId}`);
       await deleteFolderFile(id, fileId);
       
       // 로컬 FS에서도 즉시 삭제
       if (fs.existsSync(fullPath)) {
         fs.unlinkSync(fullPath);
-        console.warn(`📁 [SyncManager] 로컬 파일 삭제 → ${fullPath}`);
+        console.warn(`📁 로컬 파일 삭제 → ${fullPath}`);
       }
       prevClientMapRef.current[id]?.delete(rel);
 
@@ -284,7 +284,7 @@ const handleLocalChange = async (filePath, id, root) => {
         updatedAt: Date.now(),
       });      
 
-      console.log(`📁 [SyncManager] 서브폴더 추가 → ${rel}/`);
+      console.log(`📁 로컬에서 서브폴더 추가 → ${rel}/`);
       ipcRenderer.send('sub-folder-added', { folderId: id, relativePath: rel });
       prevClientMapRef.current[id] = clientMap;
     } catch (e) {
@@ -298,7 +298,7 @@ const handleLocalChange = async (filePath, id, root) => {
       const rel = path.relative(root, fullPath).replace(/\\/g, '/') + '/';
       const clientMap = prevClientMapRef.current[id] || new Map();
       if (clientMap.has(rel)) {
-        console.log(`📁 [SyncManager] 서브폴더 삭제 → ${rel}`);
+        console.log(`📁 로컬에서 서브폴더 삭제 → ${rel}`);
 
         // 서버 메타 가져온 뒤, normalizeRelPath
         const rawServerFiles = await getFolderFileList(id);
@@ -327,7 +327,7 @@ const handleLocalChange = async (filePath, id, root) => {
     try {
       if (fs.existsSync(fullPath) && fs.lstatSync(fullPath).isDirectory()) {
         fs.rmdirSync(fullPath, { recursive: true }); // 로컬 디렉토리 삭제
-        console.log(`📁 [SyncManager] 서버에서 서브폴더 삭제 반영됨 → ${fullPath}`);
+        console.log(`📁 서버에서 서브폴더 삭제 → ${fullPath}`);
   
         // 클라이언트 맵에서 제거
         const rel = path.relative(root, fullPath).replace(/\\/g, '/') + '/';
@@ -345,7 +345,7 @@ const handleLocalChange = async (filePath, id, root) => {
   async function handleLocalRootAdd(absPath) {
     // 1) 이미 등록된 폴더면 아무것도 안 함
     if (folders.some(f => f.folderPath === absPath)) return;
-    console.warn('로컬에서 폴더 추가가 감지되었습니다.');
+    console.log('로컬에서 폴더 추가가 감지되었습니다.');
     try {
       // 1) 서버에 “메인 폴더” 등록
       const created = await sendSyncFolder(absPath).catch(e => {
@@ -393,6 +393,7 @@ const handleLocalChange = async (filePath, id, root) => {
     // 1) 서버에 '동기화 폴더' 삭제 API 호출
     await deleteSyncFolder(id); // API 서비스에 정의된 함수
     // 2) IPC로 홈 화면에 알려주기
+    console.log('로컬에서 폴더 삭제가 감지되었습니다.');
     ipcRenderer.send('sync-folder-removed', { folderId: id, folderPath: folderPathMap.current[id] });
     // 3) 로컬 map 정리
     delete folderPathMap.current[id];
@@ -540,7 +541,7 @@ useEffect(() => {
   // 루트경로에서 메인폴더 추가/삭제 동시 처리
   useEffect(() => {
     const onSyncFolderAdd = (_e, folder) => {
-      console.warn(`📁 [SyncManager] 폴더 추가 수신 → id=${folder.id}, path=${folder.folderPath}`);
+      console.warn(`📁 메인 폴더 추가 UI 갱신 → id=${folder.id}, path=${folder.folderPath}`);
       setFolders(prev => {
         if (prev.some(f => f.id === folder.id)) return prev;
         return [...prev, folder];
@@ -548,10 +549,10 @@ useEffect(() => {
       folderPathMap.current[folder.id] = folder.folderPath;
     };
     const onSyncFolderRemove = (_e, { folderId, folderPath }) => {
-      console.warn(`📁 [SyncManager] 폴더 삭제 수신 → id=${folderId}`);
+      console.warn(`📁 메인 폴더 삭제 UI 갱신 → id=${folderId}`);
       if (folderPath && fs.existsSync(folderPath)) {
         fs.rmdirSync(folderPath, { recursive: true });
-        console.warn(`📁 [SyncManager] 로컬 폴더 삭제 → ${folderPath}`);
+        console.warn(`📁 로컬에서 메인 폴더 삭제 UI 갱신 → ${folderPath}`);
       }
       delete folderPathMap.current[folderId];
       setFolders(prev => prev.filter(f => f.id !== folderId));
@@ -567,13 +568,13 @@ useEffect(() => {
   // ── 2) 로컬에서 서브폴더 추가/삭제 이벤트만 처리 ──
   useEffect(() => {
     const onSubFolderAdd = (_e, { folderId, relativePath }) => {
-      console.log(`📂 [SyncManager] 서브폴더 추가 수신 → folderId=${folderId}, rel=${relativePath}`);
+      console.log(`📂 서브폴더가 추가됨 → folderId=${folderId}, rel=${relativePath}`);
       // 이미 prevClientMapRef에 등록된 폴더는 무시되므로,
       // 추가로 뭔가 할 게 없다면 이 자리에 로깅만 남기셔도 됩니다.
       // (필요시 UI에 빈폴더 보존 로직 등 추가)
     };
     const onSubFolderRemove = (_e, { folderId, relativePath }) => {
-      console.log(`📂 [SyncManager] 서브폴더 삭제 수신 → folderId=${folderId}, rel=${relativePath}`);
+      console.log(`📂 서브폴더가 삭제됨 → folderId=${folderId}, rel=${relativePath}`);
       // prevClientMapRef에서도 지워졌다면 별도 처리 불필요
     };
 
@@ -820,7 +821,7 @@ useEffect(() => {
         if (rel === '') {
           // 로컬에서 메인폴더 삭제 시 일단 파일변경 감지를 꺼야한다.
           watcher.close();
-          // handleLocalRootDelete(id);
+          handleLocalRootDelete(id);
         } else {
           handleLocalSubDelete(p, id, root);
         }

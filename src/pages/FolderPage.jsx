@@ -149,8 +149,8 @@ export default function FolderPage() {
           }
         });
       
-      console.log(fileItems);       
-      console.log(dirItems);
+      // console.log(fileItems);       
+      // console.log(dirItems);
   
       setFileList([...dirItems, ...fileItems]);
       setCurrentPath(subPath);

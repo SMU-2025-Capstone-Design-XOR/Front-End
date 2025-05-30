@@ -66,12 +66,6 @@ const API_BASE = 'http://15.164.33.175:8080';
  * @param {number} expire - Presigned URL 유효 시간(분). 생략 시 백엔드 기본(15분) 사용
  * @returns {Promise<string>} - S3 Presigned URL (문자열)
  *
- * 예시 사용:
- *   const url = await getPresignedDownloadUrl(
- *     'users/123/sync-folder/456/folder1/report.docx/latest/report.docx',
- *     30
- *   );
- *   window.open(url, '_blank');
  */
 export const getPresignedDownloadUrl = async (key, expire = 15) => {
   if (!key) {
