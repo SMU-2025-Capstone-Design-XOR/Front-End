@@ -16,7 +16,7 @@
     "appId": "com.example.xor",
     "mac": {
       "target": "dmg",
-      "icon": "assets/icon.icns"
+      "icon": "src/assets/ICON/4.icns"
     },
     "win": {
       "target": [
