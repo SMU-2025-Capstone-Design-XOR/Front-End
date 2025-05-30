@@ -8,7 +8,8 @@ import deleteSvg     from '../assets/Context_Menu/folder-delete.svg';
 
 import '../css/folder_context.css';
 
-const FolderContextMenu = ({ x, y, visible, onInfo, onRedown, onDelete, onClose }) => {
+// onRedown,
+const FolderContextMenu = ({ x, y, visible, onInfo, onDelete, onClose }) => {
   
   const menuRef = useRef(null);
   const [adjustedY, setAdjustedY] = useState(y);
@@ -50,10 +51,10 @@ const FolderContextMenu = ({ x, y, visible, onInfo, onRedown, onDelete, onClose 
       </div>
 
       {/* 두 번째 메뉴 */}
-      <div className="component" onClick={onRedown}>
+      {/* <div className="component" onClick={onRedown}>
           <img className="icon" src={redownSvg} alt="Sync delete" />
           <span className="label">폴더 재다운로드</span>
-        </div>  
+        </div>   */}
 
       {/* 세 번째 메뉴 */}
       <div className="component" onClick={onDelete}>
@@ -70,7 +71,7 @@ FolderContextMenu.propTypes = {
   visible:  PropTypes.bool.isRequired,
   onClose:   PropTypes.func.isRequired,
   onInfo:   PropTypes.func.isRequired,
-  onRedown:   PropTypes.func.isRequired,
+  // onRedown:   PropTypes.func.isRequired,
   onDelete: PropTypes.func.isRequired,
 };
 

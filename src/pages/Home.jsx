@@ -394,7 +394,7 @@ export default function Home() {
         visible={ctxMenu.visible}
         x={ctxMenu.x} y={ctxMenu.y}
         onInfo={handleInfo}
-        onRedown={handleRedown}
+        // onRedown={handleRedown}
         onDelete={handleDelete}
         onClose={closeUserMenu}
       />
