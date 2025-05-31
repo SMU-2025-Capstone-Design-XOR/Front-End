@@ -48,7 +48,6 @@ export default function VersionManager() {
     setLoading(true);
     getFileVersions(folderId, fileId)
       .then(list => {
-        console.log('▶ getFileVersions 응답:', list);
         const distinct = Array.from(
           list.reduce((acc, v) => {
             if (!acc.has(v.versionNumber)) acc.set(v.versionNumber, v);
@@ -56,7 +55,7 @@ export default function VersionManager() {
           }, new Map())
           .values()
         )
-        // setVersions(list);
+        console.log('getFileVersions 버전 응답:', distinct);
         setVersions(distinct);
         setLoading(false);
       })

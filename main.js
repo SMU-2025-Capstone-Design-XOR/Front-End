@@ -78,7 +78,8 @@ function createWindow() {
       nodeIntegration: true,
       contextIsolation: false,
       nativeWindowOpen: true,
-    }
+    },
+    icon: path.join(__dirname, 'src/assets/ICON/4.icns'),
   });
 
   remoteMain.enable(win.webContents);
