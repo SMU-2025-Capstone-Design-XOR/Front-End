@@ -713,7 +713,8 @@ useEffect(() => {
   
             // 3-2) ▷ 로컬 전용 파일 → 업로드
             for (const [rel, meta] of localMap.entries()) {
-              if (rel.startsWith('.') || rel.endsWith('/')) continue;
+              const baseName = path.basename(rel);
+              if (rel.startsWith('.') || rel.endsWith('/') || baseName.startsWith('.')) continue;
               if (!filesSet.has(rel)) {
                 try {
                   await uploadFile(id, path.join(root, rel), rel);
@@ -752,6 +753,9 @@ useEffect(() => {
   
             // 3-4) ▷ 변경된 파일 동기화 (해시 비교)
             for (const [relPath, localMeta] of localMap.entries()) {
+              const baseName = path.basename(relPath);
+              if (relPath.startsWith('.') || relPath.endsWith('/') || baseName.startsWith('.')) continue;
+
               const serverMeta = serverFiles.find(f => f.relPath === relPath);
               if (!serverMeta) continue;
               if (localMeta.hash && serverMeta.hash && localMeta.hash === serverMeta.hash) continue;

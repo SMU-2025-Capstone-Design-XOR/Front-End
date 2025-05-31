@@ -73,7 +73,7 @@ export default function VersionManager() {
       const notes = {};
       await Promise.all(
         versions.map(async v => {
-          const note = await getVersionNote(folderId, v.versionNumber);
+          const note = await getVersionNote(fileId, v.versionNumber);
           notes[v.versionNumber] = note || '';
         })
       );
@@ -115,7 +115,7 @@ export default function VersionManager() {
 
 const handleEdit = async () => {
     if (!selectedVersion) return;
-    const oldNote = await getVersionNote(folderId, selectedVersion.versionNumber);
+    const oldNote = await getVersionNote(fileId, selectedVersion.versionNumber);
     setNoteInput(oldNote || '');
     setEditModalVisible(true);
     setCtxVisible(false);
@@ -123,7 +123,7 @@ const handleEdit = async () => {
 
 const saveEdit = async () => {
     if (!selectedVersion) return;
-    await setVersionNote(folderId, selectedVersion.versionNumber, noteInput);
+    await setVersionNote(fileId, selectedVersion.versionNumber, noteInput);
     // setVersions(vs => [...vs]);
     setVersionNotes(prev => ({
         ...prev,
