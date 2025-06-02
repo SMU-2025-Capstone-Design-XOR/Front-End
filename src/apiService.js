@@ -72,30 +72,28 @@ export const getPresignedDownloadUrl = async (key, expire = 15) => {
     throw new Error('Presigned URL을 요청하려면 key가 필요합니다.');
   }
 
-  // 인코딩: key 문자열을 URL-safe하게 변환
+  // URL-safe 인코딩 처리
   const encodedKey = key
     .split('/')
     .map(encodeURIComponent)
     .join('/');
 
-  // expire 파라미터가 0 또는 음수일 경우 기본 생략 가능
+  // 쿼리 파라미터 구성
   const queryParams = [`key=${encodedKey}`];
   if (typeof expire === 'number' && expire > 0) {
     queryParams.push(`expire=${encodeURIComponent(expire)}`);
   }
   const queryString = queryParams.join('&');
 
-  // fetchWithAuth로 호출하면 Blob을 반환하므로, text()로 변환 필요
+  // Blob -> text 변환
   const blob = await fetchWithAuth(
     `${API_BASE}/s3/presigned-download?${queryString}`,
     { method: 'GET' }
   );
 
-  // 응답이 Blob이므로, text()로 읽어서 반환
-  // const presignedUrl = await blob.text();
-  // return presignedUrl;
   return await blob.text();
 };
+
 
 
 /**

@@ -446,13 +446,15 @@ const handlefoldDelete = async () => {
   const closeFileMenu = () => setFileMenu(m => ({ ...m, visible: false }));
 
   // 파일 메뉴 핸들러
+
+  // 파일 공유 링크 함수
   const handleFileShare = async () => {
     try {
       closeFileMenu();
       if (!fileMenu.item) return;
 
       const rawRelativePath = fileMenu.item.fileName;
-      if (!rawRelativePath){
+      if (!rawRelativePath) {
         throw new Error('유효하지 않은 파일 경로입니다.');
       }
       const s3Key = `users/${currentUserId}/sync-folders/${id}/${rawRelativePath}`;
@@ -466,7 +468,7 @@ const handlefoldDelete = async () => {
       alert('파일 공유 링크 생성에 실패했습니다.\n' + err.message);
     }
   };
-
+  // 버전 관리 목록 함수
   const handleFileVersion  = () => {
     const { fileId, fileName } = fileMenu.item;
     ipcRenderer.send('open-version-window', {

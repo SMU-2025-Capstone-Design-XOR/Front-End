@@ -79,7 +79,7 @@ function createWindow() {
       contextIsolation: false,
       nativeWindowOpen: true,
     },
-    icon: path.join(__dirname, 'src/assets/ICON/4.icns'),
+    // icon: path.join(__dirname, 'src/assets/ICON/4.icns'),
   });
 
   remoteMain.enable(win.webContents);
@@ -113,6 +113,7 @@ function createVersionWindow(folderId, fileId, relativePath) {
 
 // 앱 초기화 후
 app.whenReady().then(() => {
+
   createXorRoot();
   createWindow();
 

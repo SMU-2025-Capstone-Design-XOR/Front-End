@@ -51,7 +51,6 @@ export default function Home() {
   const userDir = xorUser
   ? path.join(os.homedir(), 'XOR', xorUser)
   : null;
-  // const userDir = localStorage.getItem('userDir') || '';
 
 
   // 등록된 싱크 폴더 목록
@@ -125,10 +124,6 @@ export default function Home() {
   const handleSelectFolder = async () => {
     const sel = await ipcRenderer.invoke('open-folder-dialog');
     if (!sel) return;
-
-    // // 1) XOR 루트 폴더 -> 사용자 계정 폴더
-    // const username = localStorage.getItem('currentUser') || 'User';
-    // const userDir = path.join(os.homedir(), 'XOR', username);
 
     
     if (!fs.existsSync(userDir)) {
@@ -332,7 +327,6 @@ export default function Home() {
   const [userMenu, setUserMenu] = useState({ visible:false, x:0, y:0 });
   const showUserMenu           = e => { e.preventDefault(); setUserMenu({ visible:true, x:e.clientX, y:e.clientY }); };
   const closeUserMenu          = () => setUserMenu(m=>({ ...m, visible:false }));
-  // const handleLogout           = () => { if (confirm('로그아웃?')) { localStorage.clear(); navigate('/'); }};
   const handleLogout = () => {
     if (confirm('로그아웃?')) {
       // xorUser 만 지워도 충분합니다
