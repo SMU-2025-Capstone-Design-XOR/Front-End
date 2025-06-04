@@ -9,21 +9,22 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 
 
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
-import remoteMain from '@electron/remote/main/index.js';
-import path from 'path';
-import fs from 'fs';
-import os from 'os';
-import Store from 'electron-store';
+import { app, BrowserWindow, dialog, ipcMain } from 'electron'; // Electron 메인 API
+import remoteMain from '@electron/remote/main/index.js'; // 렌더러 프로세스에서 메인 기능을 사용하기 위한 remote
+import path from 'path'; // 파일 경로 유틸리티
+import fs from 'fs'; // 파일 시스템 모듈
+import os from 'os'; // 운영체제 관련 정보 모듈
+import Store from 'electron-store'; // JSON 형태의 간단한 영속 저장소
 
-
+// ▶️ remote 기능 초기화 (렌더러에서 메인 API 접근 허용)
 remoteMain.initialize();
 
-// interop guard: default 프로퍼티가 있으면 그걸, 아니면 모듈 자체를 Store로
+// ▶️ electron-store 초기화 (버전 노트 저장용)
 const noteStore = new Store({ name: 'version-notes' })
-// 1. clientMapStore 초기화
+// ▶️ 전역 객체에 폴더별 클라이언트 파일맵을 저장하기 위한 공간 생성
 global.clientMapStore = {};  // 폴더 ID -> 파일 목록 매핑
 
+// 📁 XOR 루트 디렉토리 생성 함수
 function createXorRoot() {
   const xorRoot = path.join(os.homedir(), 'XOR');
 
@@ -38,7 +39,7 @@ function createXorRoot() {
 
   return xorRoot;
 }
-
+// 👤 사용자 계정별 폴더 생성 함수
 function createUserFolder(username) {
   const userDir = path.join(os.homedir(), 'XOR', username);
 
@@ -69,7 +70,7 @@ function createUserFolder(username) {
 
   return userDir;
 }
-
+// 🪟 메인 브라우저 윈도우 생성 함수
 function createWindow() {
   const win = new BrowserWindow({
     width: 1240, height: 924,
@@ -79,13 +80,13 @@ function createWindow() {
       contextIsolation: false,
       nativeWindowOpen: true,
     },
-    // icon: path.join(__dirname, 'src/assets/ICON/4.icns'),
+    // icon: path.join(__dirname, 'src/assets/ICON/4.icns'), // macOS 앱 아이콘 설정 (필요 시 주석 해제)
   });
 
-  remoteMain.enable(win.webContents);
-  win.loadFile(path.join(__dirname, 'index.html'));
+  remoteMain.enable(win.webContents); // 이 창에서 remote 사용 가능하게 설정
+  win.loadFile(path.join(__dirname, 'index.html')); // React 앱이 번들된 index.html 로딩
 
-  // macOS에서 재실행 처리
+  // macOS에서는 창이 모두 닫혀도 앱이 종료되지 않으므로 다시 생성
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -102,7 +103,7 @@ function createVersionWindow(folderId, fileId, relativePath) {
     }
   });
   remoteMain.enable(win.webContents);
-  // React 라우터에서 /version?folderId=…&relativePath=… 경로를 잡아주게끔
+  // React 라우터에서 /version 페이지를 경로 파라미터로 열도록 구성
   const url = `file://${path.join(__dirname, 'index.html')}#/version` +
               `?folderId=${folderId}` +
               `&fileId=${fileId}` +
@@ -114,8 +115,8 @@ function createVersionWindow(folderId, fileId, relativePath) {
 // 앱 초기화 후
 app.whenReady().then(() => {
 
-  createXorRoot();
-  createWindow();
+  createXorRoot();    // 루트 폴더 생성
+  createWindow();     // 메인 창 생성
 
   // IPC: 사용자 폴더 생성 요청 처리
   ipcMain.handle('init-user-folder', (event, username) => {
@@ -131,7 +132,7 @@ app.whenReady().then(() => {
     createVersionWindow(folderId, fileId, relativePath);
   });
 
-
+  // 각종 동기화 이벤트들을 브로드캐스트 처리
   ipcMain.on('sync-file-added',    (e, d) => broadcast('sync-file-added',    d));
   ipcMain.on('sync-file-deleted',  (e, d) => broadcast('sync-file-deleted',  d));
   ipcMain.on('sync-file-updated',  (e, d) => broadcast('sync-file-updated',  d));
@@ -145,7 +146,8 @@ app.whenReady().then(() => {
   ipcMain.on('sub-folder-added',   (e, d) => broadcast('sub-folder-added',   d));
   ipcMain.on('sub-folder-removed', (e, d) => broadcast('sub-folder-removed', d));
   ipcMain.on('sub-folder-removed-server', (e, d) => broadcast('sub-folder-removed', d));
-
+  
+  // 폴더 선택 다이얼로그 오픈
   ipcMain.handle('open-folder-dialog', async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
       properties: ['openDirectory']
@@ -176,13 +178,12 @@ ipcMain.handle('set-version-note', (_e, { fileId, version, note }) => {
   return true
 })
 
-
+// 모든 창이 닫히면 macOS 외에는 앱 종료
 app.on('window-all-closed', () => {
-  // macOS 외 모든 플랫폼에서 앱 종료 :contentReference[oaicite:1]{index=1}
   if (process.platform !== 'darwin') app.quit();
 });
 
-// helper function
+// 브라우저 창에 메시지를 전달하는 헬퍼 함수
 function broadcast(channel, data){
   BrowserWindow.getAllWindows().forEach(w => w.webContents.send(channel, data));
 }
