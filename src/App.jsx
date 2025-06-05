@@ -13,7 +13,7 @@ import VersionManager from './pages/VersionManager'; // 폴더 내 파일의 버
 import SyncManager from './SyncManager'; // 백그라운드 동기화 기능 컴포넌트
 
  const App = () => {
-  console.log('App loaded'); // 디버깅용 콘솔 로그
+  console.log('App이 정상적으로 로드되었습니다.'); // 디버깅용 콘솔 로그
    
   return (
     <>

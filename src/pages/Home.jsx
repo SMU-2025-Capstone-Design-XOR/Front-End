@@ -30,6 +30,26 @@ import os from 'os';
 import path from 'path';
 
 
+
+/**
+ * 백엔드-저장 절대경로(예: "/Users/oldUser/XOR/A/MyDocs/latest/MyDocs")
+ * 를 “최종 사용자 머신”의 홈 디렉터리 구조에 맞게 다시 계산하는 함수.
+ * 최상위 폴더 이름(여기서는 “MyDocs”)만 뽑아서 userDir/MyDocs 로 재구성.
+ */
+function computeLocalPathFromServerPath(serverPath, userDir) {
+  if (!serverPath || !userDir) return null;
+  // serverPath 예시:
+  //    "/Users/oldUser/XOR/A/MyDocs/latest/MyDocs"
+  // 우선 baseName 을 뽑으면 “MyDocs”가 나옴
+  const folderName = path.basename(serverPath);
+  // localPath 는 “/Users/currentMachine/XOR/A/MyDocs”
+  return path.join(userDir, folderName);
+}
+
+/**
+ * 서버-메타 데이터에 포함되어 있던 raw relativePath(예: "sub/foo.txt/latest/foo.txt")
+ * 에서 “latest”와 중복된 파일명 부분을 제거해서 진짜 경로("sub/foo.txt")로 만드는 헬퍼
+ */
 function normalizeRelPath(raw) {
   if (!raw) return raw;
   const parts = raw.split('/');
@@ -46,14 +66,16 @@ export default function Home() {
   const navigate = useNavigate();
 
   const username = localStorage.getItem('currentUser') || 'User';
-  // xorUser 만 저장해 두고, 여기서 다시 실제 경로를 계산
   const xorUser = localStorage.getItem('xorUser');
+  // **절대경로 대신 항상 os.homedir() 기반으로 재계산**
   const userDir = xorUser
   ? path.join(os.homedir(), 'XOR', xorUser)
   : null;
 
+  // --- ① 서버에서 받아온 “원본” folder 객체 리스트 (각 객체에 id, folderPath 등이 포함되어 옴)  
+  const [rawFolders, setRawFolders] = useState([]);
 
-  // 등록된 싱크 폴더 목록
+  // --- ② 화면에 렌더링할 때는 “실제 로컬 경로(localPath)”를 포함시킨 리스트로 변환 
   const [syncFolders, setSyncFolders] = useState([]);
 
   // fs.watch 인스턴스 저장용
@@ -66,14 +88,35 @@ export default function Home() {
       return;
     }
 
-
     (async () => {
       try {
+        // 1) 백엔드로부터 등록된 모든 sync 폴더 리스트 받아옴
         const data = await getSyncFolder();
-        // 기존 동기화 폴더 목록
         const allFolders = Array.isArray(data) ? data : [];
-        // 사용자 계정 폴더 내의 동기화 폴더만 필터링
-        const userSyncFolders = allFolders.filter(folder => folder.folderPath.startsWith(userDir));
+
+        // 2) 이 계정(xorUser)과 연결된 항목만 선별
+        //    (백엔드에 저장된 folderPath 는 모든 계정(다른 머신 포함)의 절대경로가 있을 수 있음)
+        //    → 폴더 이름만 뽑아서, userDir/MyFolderName 구조로 다시 localPath 재계산
+        const userSyncFolders = allFolders
+          .filter(folder => {
+            // 예: backend folder.folderPath: "/Users/oldUser/XOR/A/MyDocs"
+            //    thisUserDir: "/Users/currentMachine/XOR/A"
+            //    여기서는 “서버상 어딘가에 A 계정 폴더 구조” 로만 분리하기 위해
+            //    path.sep + xorUser + path.sep 이 포함되어 있는지로 필터
+            return folder.folderPath.includes(path.join('XOR', xorUser, path.sep));
+          })
+          .map(folder => {
+            const localPath = computeLocalPathFromServerPath(folder.folderPath, userDir);
+            // 화면에서 쓸 수 있도록 필요한 데이터를 정리해서 반환
+            return {
+              id: folder.id,
+              serverPath: folder.folderPath, // 디버깅/참조용
+              localPath,                     // 실제 로컬 입출력에 사용할 절대경로
+              folderName: path.basename(folder.folderPath),
+            };
+          });
+
+        setRawFolders(allFolders);
         setSyncFolders(userSyncFolders);
 
       } catch (err) {
@@ -87,6 +130,26 @@ export default function Home() {
         }
       }
     })();
+    // (async () => {
+    //   try {
+    //     const data = await getSyncFolder();
+    //     // 기존 동기화 폴더 목록
+    //     const allFolders = Array.isArray(data) ? data : [];
+    //     // 사용자 계정 폴더 내의 동기화 폴더만 필터링
+    //     const userSyncFolders = allFolders.filter(folder => folder.folderPath.startsWith(userDir));
+    //     setSyncFolders(userSyncFolders);
+
+    //   } catch (err) {
+    //     if (err.message.startsWith('HTTP 403')) {
+    //       localStorage.removeItem('token');
+    //       alert('세션이 만료되었습니다. 다시 로그인 해주세요.');
+    //       navigate('/');
+    //     } else {
+    //       console.error('폴더 목록 로드 오류:', err);
+    //       alert('폴더 목록을 불러오지 못했습니다.');
+    //     }
+    //   }
+    // })();
 
     // IPC로 삭제 알림 구독
     const onRemoved = (_e, { folderId }) => {
@@ -96,20 +159,37 @@ export default function Home() {
 
     // 추가 이벤트
     const onAdded = (_e, folder) => {
-      // if (folder.folderPath.startsWith(userDir)) {
-      //   setSyncFolders(prev => [...prev, folder]);
-      // }
-      if (!folder.folderPath.startsWith(userDir)) return;
-      setSyncFolders(prev => {
-        // 이미 같은 ID 가 있으면 아무 동작도 안 함
-        if (prev.some(f => f.id === folder.id)) {
-          return prev;
-        }
-        return [...prev, folder];
-      });
+      // 백엔드가 보낸 folder.folderPath 는 절대경로(이전 머신 경로)일 수 있음
+      // → 고유 ID는 같으므로, rawFolders 에서 동일 ID 있으면 건너뜀
+      if (rawFolders.some(f => f.id === folder.id)) return;
 
+      // 새로 rawFolders에 추가
+      setRawFolders(prev => [...prev, folder]);
+
+      // 해당 폴더가 이 계정(xorUser) 소속인지 확인
+      if (!folder.folderPath.includes(path.join('XOR', xorUser, path.sep))) return;
+
+      // 새로 localPath 계산
+      const newLocalPath = computeLocalPathFromServerPath(folder.folderPath, userDir);
+      setSyncFolders(prev => [
+        ...prev,
+        { id: folder.id, serverPath: folder.folderPath, localPath: newLocalPath, folderName: path.basename(folder.folderPath) }
+      ]);
     };
-    ipcRenderer.on('dosync-folder-added', onAdded);
+    ipcRenderer.on('dosync-folder-added', onAdded);    
+    // const onAdded = (_e, folder) => {
+
+    //   if (!folder.folderPath.startsWith(userDir)) return;
+    //   setSyncFolders(prev => {
+    //     // 이미 같은 ID 가 있으면 아무 동작도 안 함
+    //     if (prev.some(f => f.id === folder.id)) {
+    //       return prev;
+    //     }
+    //     return [...prev, folder];
+    //   });
+
+    // };
+    // ipcRenderer.on('dosync-folder-added', onAdded);
 
 
     return () => {
@@ -122,35 +202,38 @@ export default function Home() {
   
   // 2) “싱크 폴더 추가” 버튼 핸들러
   const handleSelectFolder = async () => {
+    // ① Electron 다이얼로그로 폴더 선택
     const sel = await ipcRenderer.invoke('open-folder-dialog');
     if (!sel) return;
 
-    
+    // ② 현재 머신 userDir(~/XOR/{xorUser})이 없다면 생성
     if (!fs.existsSync(userDir)) {
       fs.mkdirSync(userDir, { recursive: true });
     }
 
-    // 2) 선택된 폴더 이름만 추출 → XOR 루트 아래에 디렉토리 생성
+    // ③ 선택된 폴더 이름만 따와서 userDir 아래에 동일한 이름으로 복사할 대상 경로 생성
     const folderName = path.basename(sel);
     const targetDir  = path.join(userDir, folderName);
 
-    // 이미 등록된 폴더는 무시
+    // ④ 이미 같은 이름으로 등록된 적 있으면 무시
     if (syncFolders.some(f => f.folderPath === targetDir)) {
       console.warn('이미 등록된 폴더:', targetDir);
       return;
     }    
 
 
-    // // ① 먼저 justAdded 세트에 등록 (SyncManager 가 로컬 watcher 에서 무시하도록)
+    // ⑤ “방금 추가된” 표시를 위해 IPC로 알림 (SyncManager 쪽에서 로컬 watcher를 무시하게 함)
     ipcRenderer.send('local-folder-added', targetDir); // 무조건 보냄
+
+    // ⑥ userDir 아래로 실제 파일 복사
     fs.mkdirSync(targetDir, { recursive: true });
     copyRecursive(sel, targetDir);
 
     try {
-      // 3) 서버에 등록할 때는 targetDir 사용
+      // ⑦ 백엔드에 등록할 때는 targetDir(이 클라이언트 절대경로)을 사용
       const created = await sendSyncFolder(targetDir);
 
-      // 4) 로컬 메타 수집도 targetDir 에서
+      // ⑧ 로컬 메타 데이터 생성 (초기 sync용)
       const walkClientFiles = (root) => {
         const results = [];
 
@@ -184,9 +267,11 @@ export default function Home() {
 
       const clientFiles = walkClientFiles(targetDir);      
 
-      // 5) 초기 sync & 업/다운로드
+      // ⑨ 백엔드와 비교하여 업로드/다운로드 리스트 받아오기
       const { filesToUpload = [], filesToDownload = [] } =
         await syncFolder(created.id, clientFiles, []);
+
+      // ⑩ 업로드해야 할 파일들 백엔드로 전송
       for (const name of filesToUpload) {
         await uploadFile(
           created.id,
@@ -194,18 +279,32 @@ export default function Home() {
           name
         );
       }
+      // ⑪ 다운로드해야 할 파일들 로컬에 저장
       for (const name of filesToDownload) {
         const blob = await downloadFolderFile(created.id, name);
         const buf  = await blob.arrayBuffer();
         fs.writeFileSync(path.join(targetDir, name), Buffer.from(buf));
       }
 
-      // 6) 목록 갱신 & SyncManager에 알리기
+      // ⑫ 폴더 목록 갱신
       const refreshed = await getSyncFolder();
-      setSyncFolders(Array.isArray(refreshed) ? refreshed : []);
+      // rawFolders와 syncFolders 모두 다시 재계산
+      setRawFolders(Array.isArray(refreshed) ? refreshed : []);
+      const userSyncFolders = (Array.isArray(refreshed) ? refreshed : [])
+        .filter(f => f.folderPath.includes(path.join('XOR', xorUser, path.sep)))
+        .map(f => {
+          return {
+            id: f.id,
+            serverPath: f.folderPath,
+            localPath: computeLocalPathFromServerPath(f.folderPath, userDir),
+            folderName: path.basename(f.folderPath),
+          };
+        });
+      setSyncFolders(userSyncFolders);      
+      // setSyncFolders(Array.isArray(refreshed) ? refreshed : []);
       // 이 경로는 SyncManager 쪽에서 무시해야 할 “방금 추가된” 경로
 
-
+      // ⑬ SyncManager 쪽에 방금 추가된 사실 전달
       ipcRenderer.send('flag-folder-added', created);
     } catch (err) {
       console.error('폴더 등록/동기화 실패:', err);
@@ -220,8 +319,12 @@ export default function Home() {
     e.preventDefault();
     setCtxMenu({ visible:true, x:e.clientX, y:e.clientY, folderId:id });
   };
-  const onDoubleClick = folder =>
-    navigate(`/folder/${folder.id}`, { state:{ folderPath: folder.folderPath }});
+  // const onDoubleClick = folder =>
+  //   navigate(`/folder/${folder.id}`, { state:{ folderPath: folder.folderPath }});
+  const onDoubleClick = (folder) => {
+    // folder.localPath 를 props로 넘김
+    navigate(`/folder/${folder.id}`, { state:{ folderPath: folder.serverPath }});
+  };  
   const handleInfo   = () => { alert(`Folder ID: ${ctxMenu.folderId}`); setCtxMenu(m=>({ ...m, visible:false })); };
 
   const handleRedown = async () => {
@@ -231,25 +334,26 @@ export default function Home() {
     alert('폴더 정보를 찾을 수 없습니다.');
     return setCtxMenu(m => ({ ...m, visible: false }));
   }
-
-  const targetDir = folder.folderPath;
+  // ① localPath 에 이미 존재하면 무시
+  // const targetDir = folder.folderPath;
+  const targetDir = folder.localPath;
   if (fs.existsSync(targetDir)) {
     alert('이미 로컬에 폴더가 존재합니다.');
     return setCtxMenu(m => ({ ...m, visible: false }));
   }
 
   try {
-    // 1) 로컬 폴더 생성
+    // ② 빈 디렉터리 생성
     fs.mkdirSync(targetDir, { recursive: true });
 
-    // 2) 서버에서 “latest” 파일 목록 가져오기
+     // ③ 서버에서 “latest” 파일 목록 받아오기
     const rawServerList = await getFolderFileList(folderId);
     const fileEntries = rawServerList.filter(f =>
       f.type === 'file' &&
       (f.relativePath || f.originalName).includes('/latest/')
     );
 
-    // 3) 서버 파일 메타 구성 (rawPath, relPath, lastModified)
+    // ④ 서버 메타 → 실제 하위 경로(relPath) 계산
     const serverFiles = fileEntries.map(f => {
       const rawPath = f.relativePath || f.originalName;           // ex: "sub/foo.txt/latest/foo.txt"
       const relPath = normalizeRelPath(rawPath);                  // ex: "sub/foo.txt"
@@ -260,7 +364,7 @@ export default function Home() {
       };
     });
 
-    // 4) “진짜 서브폴더” 목록 뽑아서 먼저 생성
+    // ⑤ “진짜 서브폴더” 목록 뽑아서 먼저 생성
     const folderNames = new Set();
     for (const { relPath } of serverFiles) {
       const parts = relPath.split('/');
@@ -271,7 +375,7 @@ export default function Home() {
       fs.mkdirSync(absDir, { recursive: true });
     }
 
-    // 5) 파일 다운로드 & mtime 동기화
+    // ⑥ 파일 다운로드 및 mtime 동기화
     for (const { rawPath, relPath, lastModified } of serverFiles) {
       const name = path.basename(relPath);
       if (name.startsWith('.')) continue;  // 숨김파일 스킵
@@ -305,19 +409,40 @@ export default function Home() {
   
   const handleDelete = async () => {
     if (!confirm('삭제하시겠습니까?')) return setCtxMenu(m=>({ ...m, visible:false }));
+    // 백엔드에서 삭제 요청
     await deleteSyncFolder(ctxMenu.folderId);
     const refreshed = await getSyncFolder();
     setSyncFolders(Array.isArray(refreshed)?refreshed:[]);
 
-    // → 바로 SyncManager에게도 알려주기
-    {
-      // 삭제 직전에, 현재 띄워진 syncFolders 배열에서 해당 folderPath를 찾아서
-      const toDel = syncFolders.find(f => f.id === ctxMenu.folderId);
+    // 삭제 후 다시 syncFolders 계산
+    const userSyncFolders = (Array.isArray(refreshed) ? refreshed : [])
+      .filter(f => f.folderPath.includes(path.join('XOR', xorUser, path.sep)))
+      .map(f => ({
+        id: f.id,
+        serverPath: f.folderPath,
+        localPath: computeLocalPathFromServerPath(f.folderPath, userDir),
+        folderName: path.basename(f.folderPath),
+      }));
+    setSyncFolders(userSyncFolders);
+
+    // SyncManager 쪽에 삭제 알림
+    const toDel = syncFolders.find(f => f.id === ctxMenu.folderId);
+    if (toDel) {
       ipcRenderer.send('sync-folder-removed', {
         folderId:   ctxMenu.folderId,
-        folderPath: toDel?.folderPath   // Home 리스트의 folderPath
+        folderPath: toDel.serverPath
       });
     }
+
+    // // → 바로 SyncManager에게도 알려주기
+    // {
+    //   // 삭제 직전에, 현재 띄워진 syncFolders 배열에서 해당 folderPath를 찾아서
+    //   const toDel = syncFolders.find(f => f.id === ctxMenu.folderId);
+    //   ipcRenderer.send('sync-folder-removed', {
+    //     folderId:   ctxMenu.folderId,
+    //     folderPath: toDel?.folderPath   // Home 리스트의 folderPath
+    //   });
+    // }
 
 
     setCtxMenu(m=>({ ...m, visible:false }));
@@ -357,6 +482,7 @@ export default function Home() {
 
       {/* New Sync + Folder List */}
       <div className="home-main">
+        {/* “백업 폴더 추가” 버튼 */}
           <div className="sync-wrapper" onClick={handleSelectFolder}>
           <img src={createSync} alt=""/>
           <div className="sync-label">백업 폴더 추가</div>
@@ -364,11 +490,12 @@ export default function Home() {
         {
           // 화면에 출력할 때만 가나다순으로 정렬해서 보여주도록, 원본 state는 건드리지 않는다.
           [...syncFolders]
-            .sort((a, b) => {
-              const nameA = a.folderPath.split('/').pop().toLowerCase();
-              const nameB = b.folderPath.split('/').pop().toLowerCase();
-              return nameA.localeCompare(nameB);
-            })
+            // .sort((a, b) => {
+            //   const nameA = a.folderPath.split('/').pop().toLowerCase();
+            //   const nameB = b.folderPath.split('/').pop().toLowerCase();
+            //   return nameA.localeCompare(nameB);
+            // })
+            .sort((a, b) => a.folderName.toLowerCase().localeCompare(b.folderName.toLowerCase()))
             .map(folder => (
               <div
                 key={folder.id}
@@ -377,7 +504,8 @@ export default function Home() {
                 onContextMenu={showCtx(folder.id)}
               >
                 <img src={syncIcon} alt=""/>
-                <div className="sync-label">{folder.folderPath.split('/').pop()}</div>
+                {/* <div className="sync-label">{folder.folderPath.split('/').pop()}</div> */}
+                <div className="sync-label">{folder.folderName}</div>
               </div>
             ))
         }

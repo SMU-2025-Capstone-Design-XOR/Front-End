@@ -1,8 +1,6 @@
 // src/pages/FolderPage.jsx
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-// import { Menu, MenuItem, getCurrentWindow } from '@electron/remote';
-// import { dialog } from '@electron/remote';
 import { Menu, MenuItem, getCurrentWindow, dialog, clipboard } from '@electron/remote';
 import chokidar from 'chokidar';
 const { ipcRenderer } = window.require('electron');
@@ -26,9 +24,27 @@ import {
   getUserIdFromToken,
 } from '../apiService';
 
-const fs     = window.require('fs');
-const path   = window.require('path');
+import os from 'os';
+import fs from 'fs';
+import path from "path";
 const Buffer = window.require('buffer').Buffer;
+
+/**
+ * 서버에 저장된 절대경로 예) "/Users/oldUser/XOR/A/MyDocs"
+ * 를 최종 사용자 머신의 홈 디렉터리 구조에 맞춰 다시 계산하는 헬퍼
+ * 예) os.homedir()="/Users/currentUser" => "/Users/currentUser/XOR/A/MyDocs"
+ */
+function computeLocalPathFromServerPath(serverPath) {
+  if (!serverPath) return null;
+  // 백엔드에 저장된 예시: "/Users/oldUser/XOR/A/MyDocs"
+  // 가장 마지막 폴더 이름(=FolderName)만 꺼냅니다.
+  const folderName = path.basename(serverPath);
+  // 로컬 머신의 홈 디렉터리 + XOR + xorUser(로그인된 계정) + folderName
+  const xorUser = localStorage.getItem('xorUser');
+  if (!xorUser) return null;
+  const userDir = path.join(os.homedir(), 'XOR', xorUser);
+  return path.join(userDir, folderName);
+}
 
 /**
  * 서버/버킷상의 "foo/bar/latest/baz.txt" 또는
@@ -51,7 +67,9 @@ function normalizeRelPath(raw) {
 export default function FolderPage() {
   const { id }     = useParams();              // sync-folder ID
   const { state }  = useLocation();
-  const folderPath = state?.folderPath || '';  // 로컬 동기화 폴더 경로
+  const serverPath = state?.folderPath || '';  // 백엔드에서 넘겨준 “절대경로”
+  // 로컬 동기화 폴더 경로
+  // const folderPath = state?.folderPath || '';  
   const navigate   = useNavigate();
   const username   = localStorage.getItem('currentUser') || 'User';
 
@@ -72,13 +90,22 @@ export default function FolderPage() {
     }
   };
 
+  // ── “로컬 동기화 폴더” 경로 계산 (항상 이 머신의 홈 디렉터리에 맞춰 재계산) ──
+  const localRoot = computeLocalPathFromServerPath(serverPath);  
+
   // ── 파일 리스트 상태 ──
   const [fileList, setFileList] = useState([]);
   const [currentPath, setCurrentPath] = useState('');
+
+  /**
+   * 주어진 subPath(빈 문자열 또는 "subFolderName/...")에 해당하는
+   * 파일/폴더 목록을 서버에서 가져와서 화면용으로 파싱하고 setFileList 합니다.
+   */
   const loadFiles = async (subPath = '') => {
     try {
+      // 1) 서버에서 raw 목록 가져오기 (모든 파일 / 하위 폴더 포함)
       const raw = await getFolderFileList(id, subPath);
-      // console.log(raw);
+      // 2) 숨김파일 또는 dot(.)으로 시작하는 항목 걸러내기
       const visible = raw.filter(f => {
         const rel = (f.relativePath || f.originalName || '')
                       .replace(/^\/+|\/+$/g, '');
@@ -86,15 +113,16 @@ export default function FolderPage() {
         return !rel.split('/').some(seg => seg.startsWith('.'));
       });
 
-      // 1) hidden / 디렉토리 엔트리 무시 & latest 이하 파일만
+      // 3) “latest” 이하 파일만 선별 → cleanedPath 생성
       const latestOnly = visible
       .filter(f => f.type === 'file' && (f.relativePath || f.originalName).includes('/latest/'))
       .map(f => ({
         ...f,
-        cleanedPath: (f.relativePath || f.originalName).replace(/^\/+|\/+$/g, '')
+        // cleanedPath: (f.relativePath || f.originalName).replace(/^\/+|\/+$/g, '')
+        cleanedPath: normalizeRelPath((f.relativePath || f.originalName).replace(/^\/+|\/+$/g, ''))
       }));
   
-      // 3) 최신판(unique)만 남기기 (동일 경로 중 lastModified 최신)
+      // 4) 동일 경로 중 최신(lastModified)만 남기도록 중복 제거
       const fileMap = new Map();
       latestOnly.forEach(f => {
         const key = f.cleanedPath;
@@ -103,55 +131,85 @@ export default function FolderPage() {
           fileMap.set(key, f);
         }
       });
-      // console.log(latestOnly);
       const uniqueFiles = Array.from(fileMap.values());
-      // 4) 원하는 “레벨”로 그룹핑
-      //    - subPath==='' → parts[0] (첫 번째)  
-      //    - subPath!==' '→ subPath 다음(parts[1]) 로
-      const groups = {};
-      uniqueFiles.forEach(f => {
-        const parts = f.cleanedPath.split('/');
-        // subPath가 있을 땐 “test/qwer.txt/latest/qwer.txt” 에서 parts[0] === subPath여야 처리
-        if (subPath && parts[0] !== subPath) return;
-        const key = subPath === '' ? parts[0] : parts[1];
-        if (!key) return;
-        if (!groups[key]) groups[key] = [];
-        groups[key].push(f);
-      });
-  
-      // 5) UI용 항목으로 변환
+
+      // 5) “폴더 vs 파일” 구분하여 UI용 객체 생성
+      //    - subPath가 ""일 때는 parts[0] 기준
+      //    - subPath가 "dd"일 때는 parts[1] 기준, subPath가 "dd/dd2"일 때는 parts[2] 기준      
       const dirItems = [];
       const fileItems = [];
-      Object.keys(groups).sort((a,b)=> a.localeCompare(b, undefined, { sensitivity:'base' }))
-        .forEach(key => {
-          const grp = groups[key];
-          // “키”가 실제 파일명인 경우 → 파일, 아니면 폴더
-          // (grp[0].originalName 이 key 와 같으면 파일)
-          if (grp[0].originalName === key) {
-            // 파일
-            fileItems.push({
-              fileId:      grp[0].id ?? grp[0].fileId,
-              // fileName:    subPath ? `${subPath}/${key}` : key,
-              fileName:    grp[0].cleanedPath,  // ← 전체 상대경로
-              name:        key,
-              isDirectory: false,
-              lastModified: grp[0].lastModified,
-            });
-          } else {
-            // 폴더
-            const folderPath = subPath ? `${subPath}/${key}` : key;
-            dirItems.push({
-              fileId:      `dir__${folderPath}`,
-              fileName:    folderPath,
-              name:        key,
-              isDirectory: true,
-            });
+      const seenDirs = new Set();   // 이미 화면에 넣은 디렉토리(subFolderPath)를 기록할 Set
+      const seenFiles = new Set();  // 이미 화면에 넣은 파일(remainder) 를 기록할 Set
+
+      uniqueFiles.forEach(f => {
+
+        // 현재 보고 있는 subPath와 매치되는지 확인
+        //    예: subPath="dd/dd2"일 때 "dd/dd2/hhh.txt" 만 통과
+        if (subPath) {
+          if (!f.cleanedPath.startsWith(subPath + '/')) {
+            return; // subPath 하위가 아니면 건너뜀
           }
-        });
-      
-      // console.log(fileItems);       
-      // console.log(dirItems);
-  
+        }
+
+        // 남은 문자열에서 첫 번째 세그먼트를 추출
+        //    예: subPath="dd/dd2", cleanedPath="dd/dd2/hhh.txt" → 남은="hhh.txt" → key="hhh.txt"
+        //         subPath=""            , cleanedPath="dd/dd2/hhh.txt" → 남은="dd/dd2/hhh.txt" → key="dd"
+        const remainder = subPath
+          ? f.cleanedPath.slice(subPath.length + 1) // 예: "dd/dd2/hhh.txt" slice  "hhh.txt"
+          : f.cleanedPath;                          // 예: "dd/dd2/hhh.txt"
+        if (!remainder) return;
+
+        
+        const key = remainder.split('/')[0];
+        if (!key) return;
+
+        // 실제 “구성 요소”가 파일인지 폴더인지 판별
+        //    → f.cleanedPath의 마지막 segment(원본 파일명) vs key 비교
+        // 실제 항상 “grp[0].originalName === key”로 체크하지 않고, 
+        // → key가 해당 레벨에 파일명과 같으면 파일, 아니면 폴더
+        //    (원본 API에서 isDirectory 같은 flag를 쓰셔도 무방)
+        // 하지만 우리 API는 put.getFolderFileList에서 type==='file'만 내려주므로
+        // 도메인 지식에 따라 구분해야 합니다.
+        // 여기서는 "latestOnly" 리스트만 파일이므로, 그대로 사용하면 됩니다.
+
+        // d) 이 예시에서는 “if cleanedPath 내 더 이상 /가 없다면 파일, 그렇지 않으면 폴더”로 구분
+        const segmentsAfter = remainder.split('/');
+        const isDir = segmentsAfter.length > 1;
+        
+        if (isDir) {
+          // 디렉터리인 경우
+          const subFolderPath = subPath ? `${subPath}/${key}` : key;
+
+          // 이미 ‘subFolderPath’를 화면에 넣은 적이 있는지 체크
+          if (seenDirs.has(subFolderPath)) {
+            return;  // 이미 출력한 디렉토리면 중복 처리 안 함
+          }
+          seenDirs.add(subFolderPath);
+
+          dirItems.push({
+            fileId:      `dir__${subFolderPath}`, // UI key용
+            fileName:    subFolderPath,           // 서버/로컬 양쪽 로직에서 “서브패스”로 사용
+            name:        key,                     // UI에 표시할 폴더 이름
+            isDirectory: true,
+          });
+        } else {
+          // 파일이면, cleanedPath를 전체 상대경로로 갖되,
+          // UI에는 key만 보여줌
+          if (seenFiles.has(remainder)) {
+            return;  // 이미 추가된 파일이면 건너뜀
+          }
+          seenFiles.add(remainder);
+
+          fileItems.push({
+            fileId:      f.id ?? f.fileId,
+            fileName:    remainder,     // “dd2/hhh.txt” or 그냥 "hhh.txt"
+            name:        key,           // UI에 보여줄 실제 파일명
+            isDirectory: false,
+            lastModified: f.lastModified,
+          });
+        }
+      });
+
       setFileList([...dirItems, ...fileItems]);
       setCurrentPath(subPath);
     } catch (err) {
@@ -161,42 +219,14 @@ export default function FolderPage() {
   };
   
 
-  // ── 1) ID 변경 시(=다른 폴더 진입) 목록 로드 ──
+  // ── 목록 로드 ──
   useEffect(() => {
-    const logInitialFiles = async () => {
-      try {
-        const files = await getFolderFileList(id, '');
-        const filteredFiles = files.filter(f => 
-          typeof f === 'object' &&
-          (f.id != null || f.originalName) &&
-          !f.originalName.startsWith('.')
-        );
-
-        const latestOnly = filteredFiles.filter(f =>
-          f.relativePath.includes('/latest/')
-        );        
-  
-        const mapped = latestOnly.map(f => ({
-          fileId: f.id ?? f.fileId,
-          fileName: f.relativePath?.trim() || f.originalName,
-          isDirectory: f.isDirectory || false,
-          name: f.originalName,
-        }));
-  
-        // console.log('초기 파일/폴더 목록:', JSON.stringify(mapped, null, 2));
-  
-      } catch (err) {
-        console.error('초기 폴더 진입 시 파일 목록 조회 실패:', err);
-      }
-    };
-
-    logInitialFiles();
-    loadFiles();
+    loadFiles('');
   }, [id]);
 
 
   const handleDoubleClick = (item) => {
-    if (item.isDirectory) {
+    if (item.isDirectory) {      
       const newPath = currentPath ? `${currentPath}/${item.name}` : item.name;
       loadFiles(newPath);
     }
@@ -217,7 +247,8 @@ export default function FolderPage() {
     function onDeleted(_e, { folderId, relativePath }) {
       if (folderId === Number(id)) {
         console.log(`IPC 수신: '${relativePath}' 삭제 → UI 갱신`);
-        loadFiles();
+        // loadFiles();
+        loadFiles(currentPath);
       }
     }
     ipcRenderer.on('sync-file-deleted', onDeleted);
@@ -227,7 +258,8 @@ export default function FolderPage() {
     function onAdded(_e, { folderId, relativePath }) {
       if (folderId === Number(id)) {
         console.log(`IPC 수신: '${relativePath}' 추가 → UI 갱신`);
-        loadFiles();
+        // loadFiles();
+        loadFiles(currentPath);
       }
     }
     ipcRenderer.on('sync-file-added', onAdded);
@@ -236,7 +268,8 @@ export default function FolderPage() {
     function onUpdated(_e, { folderId, relativePath }) {
       if (folderId === Number(id)) {
         console.log(`IPC 수신: '${relativePath}' 변경 → UI 갱신`);
-        loadFiles();
+        // loadFiles();
+        loadFiles(currentPath);
       }
     }
     ipcRenderer.on('sync-file-updated', onUpdated);
@@ -246,21 +279,21 @@ export default function FolderPage() {
       ipcRenderer.removeListener('sync-file-added', onAdded);
       ipcRenderer.removeListener('sync-file-updated', onUpdated);
     };
-  }, [id]);  
+  }, [id, currentPath]);  
 
-  // ── 2) 로컬 폴더 변경 감지하여 자동 갱신 ──
+  // ── 2) 로컬 폴더 변경 감지(Chokidar) → 자동 갱신 ──
   useEffect(() => {
-    if (!folderPath) return;
-    const watcher = chokidar.watch(folderPath, {
-      ignored: /(^|[\/\\])\..+|~$|\.swp$/,
+    if (!localRoot) return;
+    const watcher = chokidar.watch(localRoot, {
+      ignored: /(^|[\/\\])\..+|~$|\.swp$/, // dotfile, 임시파일 무시
       persistent: true,
       ignoreInitial: true,
       depth: Infinity,
       awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 100 }
     });
     const handle = () => {
-      loadFiles();
-    };
+      loadFiles(currentPath);
+    };    
     watcher.on('add',    handle)
            .on('addDir', handle)
            .on('change', handle)
@@ -268,7 +301,7 @@ export default function FolderPage() {
            .on('unlinkDir', handle);
 
     return () => watcher.close();
-  }, [folderPath, id]);
+  }, [localRoot, currentPath]);
 
 
   // ── “정보 가져오기” ──
@@ -287,17 +320,21 @@ export default function FolderPage() {
     try {
       // 항상 파일의 상대경로 문자열을 서버에 전달
       console.log('경로', relativePath);
+      // 1) 서버에 상대경로 전달 → Blob 수신
       const blob = await downloadFolderFile(id, relativePath);
       const buf  = await blob.arrayBuffer();
-      // 3) 저장 다이얼로그
-      const savePath = path.join(folderPath, relativePath)
-      const { filePath } = await dialog.showSaveDialog({
-        defaultPath: savePath
-      });
-      if (!filePath) return;
-      const dir = path.dirname(filePath);
-      // const dir = path.dirname(savePath);
 
+      // 2) “저장할 경로” 선택 대화상자 (기본 경로는 localRoot/relativePath)
+      // * 여기서도 “localRoot”를 사용해야 올바른 머신 경로가 됩니다.
+      const suggested = path.join(localRoot, relativePath);
+      const { filePath } = await dialog.showSaveDialog({
+        defaultPath: suggested
+      });      
+      if (!filePath) return;
+
+
+      // 3) 저장 대상의 디렉터리 생성
+      const dir = path.dirname(filePath);
       // 하위 폴더가 있다면 디렉토리 생성
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
@@ -314,7 +351,7 @@ export default function FolderPage() {
       let targetId;
       let displayName;
   
-      // 문자열 경로인 경우
+      // 1) 문자열(relativePath)인 경우, 실제 ID 찾아서 삭제
       if (typeof fileIdOrPath === 'string') {
         displayName = fileIdOrPath;
         const files = await getFolderFileList(id, currentPath);
@@ -325,7 +362,9 @@ export default function FolderPage() {
         if (matchingFiles.length > 0) {
           // 최신 파일의 ID를 삭제
           const latestFile = matchingFiles.reduce((latest, current) => {
-            return new Date(current.lastModified) > new Date(latest.lastModified) ? current : latest;
+            return new Date(current.lastModified) > new Date(latest.lastModified)
+            ? current
+            : latest;
           });
   
           targetId = latestFile.id ?? latestFile.fileId;
@@ -333,20 +372,22 @@ export default function FolderPage() {
       }
   
       if (!targetId) throw new Error('삭제할 파일을 찾을 수 없습니다.');
-  
       if (!window.confirm(`’${displayName}‘ 을(를) 정말 삭제하시겠습니까?`)) return;
   
+      // 2) 서버에서 삭제 요청
       await deleteFolderFile(id, targetId);
       alert('삭제되었습니다.');
   
-      // 로컬 파일 삭제
+      // 3) 로컬 디스크에서도 삭제
       const normalized = normalizeRelPath(displayName);
-      const localFull = path.join(folderPath, normalized);
+      const localFull = path.join(localRoot, normalized);
       if (fs.existsSync(localFull)) {
         fs.unlinkSync(localFull);
       }
   
-      loadFiles();
+      // 4) 목록 다시 로드
+      loadFiles(currentPath);      
+      // loadFiles();
   
     } catch (err) {
       console.error(err);
@@ -383,13 +424,17 @@ const handlefoldDelete = async () => {
     }
 
     const syncFolderId = Number(id);
-    const localRoot = folderPath;
-    let relPath = ctxMenu.relativePath;
-    if (!relPath.endsWith('/')) relPath += '/';
+    // const localRoot = folderPath;
+    // let relPath = ctxMenu.relativePath;
+    const relPath = ctxMenu.relativePath.endsWith('/')
+      ? ctxMenu.relativePath
+      : ctxMenu.relativePath + '/';
+
+    // if (!relPath.endsWith('/')) relPath += '/';
 
     console.log('▶️ handlefoldDelete - relPath:', relPath);
 
-    // 2. 서버에서 해당 폴더 내부 파일 목록 조회 (ID 포함)
+    // 1) 해당 서브폴더 내 모든 파일 메타 조회
     const serverFiles = await getFolderFileList(syncFolderId, currentPath);
     const targetFiles = serverFiles.filter(f =>
       typeof f.relativePath === 'string' &&
@@ -397,9 +442,9 @@ const handlefoldDelete = async () => {
       !f.relativePath.endsWith('/')
     );
 
-    console.log('▶️ 삭제 대상 파일:', targetFiles.map(f => f.relativePath));
+    // console.log('▶️ 삭제 대상 파일:', targetFiles.map(f => f.relativePath));
 
-    // 3. 각 파일 삭제 (서버 + 로컬)
+    // 2) 각 파일별로 서버 삭제 + 로컬 삭제
     for (const file of targetFiles) {
       const fileId = file.id ?? file.fileId;
       if (!fileId) {
@@ -416,13 +461,13 @@ const handlefoldDelete = async () => {
       }
     }
 
-    // 4. 로컬 빈 서브폴더 삭제
+    // 3) 로컬 빈 서브폴더 삭제
     const fullDir = path.join(localRoot, relPath);
     if (fs.existsSync(fullDir)) {
       await fs.promises.rmdir(fullDir, { recursive: true });
     }
 
-    // 5. IPC로 서버→로컬 폴더 삭제 트리거
+    // 4) SyncManager 쪽에 삭제 알림
     ipcRenderer.send('sub-folder-removed-server', {
       folderId: syncFolderId,
       relativePath: relPath
@@ -482,12 +527,22 @@ const handlefoldDelete = async () => {
   const handleFileDownload = () => handleDownload(fileMenu.item.fileName);
   const handleFileDelete   = () => handleDelete(fileMenu.item.fileName);
 
+  // 기준 루트 경로 (예: 'Users/praise_t.l/XOR/j1')
+  // 이 경로는 로그인한 유저에 따라 다를 수 있으므로 props 또는 변수로 따로 관리하는 게 좋습니다.
+  const rootPath = path.join(os.homedir(), 'XOR', username); // 예시, 실제 구조에 맞게 조정하세요
+  // 상대 경로 계산
+  const displayPath = serverPath.startsWith(rootPath)
+    ? serverPath.slice(rootPath.length + 1) // +1은 슬래시(/) 제거용
+    : serverPath; // 혹시 루트가 아닌 경우엔 전체 경로 그대로 표시
+
   return (
     <div className="home">
       {/* 헤더 */}
       <div className="header">
         <div className="folder-icon"/>
-        <div className="header-title">{folderPath}</div>
+        {/* 헤더에는 “로컬 읽기”가 아니라, 서버에서 받은 원본 절대경로(serverPath)를 텍스트로 보여줌 */}
+        {/* <div className="header-title">{serverPath}</div> */}
+        <div className="header-title">{displayPath || username}</div>
         <div className="username">{username}</div>
         <div className="person-icon" onContextMenu={showUserMenu}/>
         {userMenu.visible && (
@@ -500,6 +555,7 @@ const handlefoldDelete = async () => {
 
       {/* Back root + Sub Folder + document */}
       <div className="home-main">
+          {/* “..” 클릭 시 상위 폴더로 이동하거나, 루트면 메인 화면으로 */}
           <div className="fold-wrapper" onDoubleClick={handleBack}>
           <img src={backroot} alt=""/>
           <div className="fold-label">..</div>
