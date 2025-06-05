@@ -118,7 +118,6 @@ export default function FolderPage() {
       .filter(f => f.type === 'file' && (f.relativePath || f.originalName).includes('/latest/'))
       .map(f => ({
         ...f,
-        // cleanedPath: (f.relativePath || f.originalName).replace(/^\/+|\/+$/g, '')
         cleanedPath: normalizeRelPath((f.relativePath || f.originalName).replace(/^\/+|\/+$/g, ''))
       }));
   
@@ -159,8 +158,8 @@ export default function FolderPage() {
           : f.cleanedPath;                          // 예: "dd/dd2/hhh.txt"
         if (!remainder) return;
 
-        
-        const key = remainder.split('/')[0];
+        const segs = remainder.split('/');
+        const key  = segs[0];
         if (!key) return;
 
         // 실제 “구성 요소”가 파일인지 폴더인지 판별
@@ -173,8 +172,7 @@ export default function FolderPage() {
         // 여기서는 "latestOnly" 리스트만 파일이므로, 그대로 사용하면 됩니다.
 
         // d) 이 예시에서는 “if cleanedPath 내 더 이상 /가 없다면 파일, 그렇지 않으면 폴더”로 구분
-        const segmentsAfter = remainder.split('/');
-        const isDir = segmentsAfter.length > 1;
+        const isDir = segs.length > 1;
         
         if (isDir) {
           // 디렉터리인 경우
@@ -195,6 +193,10 @@ export default function FolderPage() {
         } else {
           // 파일이면, cleanedPath를 전체 상대경로로 갖되,
           // UI에는 key만 보여줌
+
+          // const fullRelPath = f.cleanedPath;
+          // if (seenFiles.has(fullRelPath)) return;
+          // seenFiles.add(fullRelPath);          
           if (seenFiles.has(remainder)) {
             return;  // 이미 추가된 파일이면 건너뜀
           }
@@ -202,7 +204,7 @@ export default function FolderPage() {
 
           fileItems.push({
             fileId:      f.id ?? f.fileId,
-            fileName:    remainder,     // “dd2/hhh.txt” or 그냥 "hhh.txt"
+            fileName:    f.relativePath, // “dd2/hhh.txt” or 그냥 "hhh.txt"
             name:        key,           // UI에 보여줄 실제 파일명
             isDirectory: false,
             lastModified: f.lastModified,
