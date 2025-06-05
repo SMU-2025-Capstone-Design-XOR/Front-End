@@ -5,11 +5,23 @@
 <head>
   <meta charset="UTF-8">
   <title>XOR</title>
-  <!-- Content Security Policy (개발 중에는 lax하게 설정) -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' http://localhost:8080 http://15.164.33.175:8080; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+
+  <!-- Content Security Policy (CSP)
+       - 개발 중에는 비교적 느슨하게 설정 (개발 편의성 ↑)
+       - 나중에 배포용은 stricter CSP로 보안 강화 필요 -->
+  <meta http-equiv="Content-Security-Policy"
+        content="
+          default-src 'self';
+          connect-src 'self' http://localhost:8080 http://15.164.33.175:8080;
+          script-src 'self' 'unsafe-inline';
+          style-src 'self' 'unsafe-inline';
+        ">
 </head>
 <body>
+  <!-- React가 이 div 안에 렌더링됨 -->
   <div id="root"></div>
+
+  <!-- Webpack으로 번들링된 React 코드 (렌더러) -->
   <script src="./dist/renderer.bundle.js"></script>
 </body>
 </html>

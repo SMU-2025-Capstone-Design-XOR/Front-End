@@ -9,9 +9,9 @@ import TextField from '../components/TextField';
 import Button from '../components/Button';
 
 const Register = () => {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState(''); // 사용자명
+  const [password, setPassword] = useState(''); // 비밀번호
+  const [email, setEmail] = useState('');       // 이메일
   const navigate = useNavigate();
 
   const handleRegister = async (e) => {
@@ -24,7 +24,7 @@ const Register = () => {
       });
       if (!response.ok) throw new Error('회원가입 실패');
       alert('회원가입 성공!');
-      navigate('/');
+      navigate('/'); // 로그인 페이지로 이동
     } catch (error) {
       alert('회원가입 실패. 다시 시도하세요.');
     }
@@ -35,12 +35,14 @@ const Register = () => {
       <div className="frame-2">
         <div className="text-wrapper">Sign up</div>
         <form onSubmit={handleRegister}>
+          {/* 사용자명 입력 */}
           <TextField
             id="username"
             label="Username"
             value={username}
             onChange={e => setUsername(e.target.value)}
           />
+          {/* 비밀번호 입력 */}
           <TextField
             id="password"
             label="Password"
@@ -48,6 +50,7 @@ const Register = () => {
             value={password}
             onChange={e => setPassword(e.target.value)}
           />
+          {/* 이메일 입력 */}
           <TextField
             id="email"
             label="Email"
@@ -56,14 +59,14 @@ const Register = () => {
             onChange={e => setEmail(e.target.value)}
           />
 
-          {/* Sign up */}
+          {/* 회원가입 버튼 */}
           <Button
             type="submit"
             text="Sign up"
             className="button-instance design-component-instance-node"
           />
 
-          {/* Back */}
+          {/* 뒤로가기 버튼 (로그인 화면으로) */}
           <Button
             text="Back"
             onClick={() => navigate('/')}

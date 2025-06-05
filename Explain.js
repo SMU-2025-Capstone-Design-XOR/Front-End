@@ -15,6 +15,7 @@
 //   @babel/core \
 //   babel-loader \
 //   @babel/preset-react \
+//   @babel/preset-env \
 //   style-loader \
 //   css-loader \
 //   postcss \

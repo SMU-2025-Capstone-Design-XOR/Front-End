@@ -29,8 +29,6 @@ export const getUserIdFromToken = () => {
  */
 const fetchWithAuth = async (url, options = {}) => {
   const token = localStorage.getItem('token');
-  // console.log(token);
-  // console.log(url);
   const headers = {
     ...(options.headers || {}),
     'Authorization': `Bearer ${token}`,
@@ -52,8 +50,9 @@ const fetchWithAuth = async (url, options = {}) => {
 // API 서버 기본 URL
 const API_BASE = 'http://15.164.33.175:8080';
 
-/**** API 함수들 ****/
 
+
+/**** API 함수들 ****/
 
 /**
  * ───────────────────────────────────────────────────────────
@@ -133,7 +132,7 @@ export const uploadFile = async (syncFolderId, localFilePath, relativePath) => {
   const userId = getUserIdFromToken();
   if (!userId) throw new Error('유효한 토큰이 없습니다.');
 
-  //로컬 파일 읽기
+  // Electron 환경 전용 (브라우저에서는 사용 불가)
   const fs = window.require('fs');
   const fileBuffer = fs.readFileSync(localFilePath);
   const fileName   = path.basename(localFilePath);

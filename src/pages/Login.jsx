@@ -1,7 +1,7 @@
 // src/pages/Login.jsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ipcRenderer } from 'electron';
+import { ipcRenderer } from 'electron'; // Electron의 main process와 통신
 import '../css/login.css';
 
 // Figma-to-React가 만들어준 컴포넌트 경로로 import
@@ -13,13 +13,16 @@ const Login = () => {
 
   const savedUsername = localStorage.getItem('rememberedUsername') || '';
 
-  const [username, setUsername] = useState(savedUsername);
-  const [password, setPassword] = useState('');
-  const [rememberId, setRememberId] = useState(!!savedUsername);
+  const [username, setUsername] = useState(savedUsername); // 아이디 입력 상태
+  const [password, setPassword] = useState('');             // 비밀번호 입력 상태
+  const [rememberId, setRememberId] = useState(!!savedUsername); // 체크 여부 상태
 
+  // 로그인 요청 처리
   const handleSubmit = async (e) => {
-    e.preventDefault();
+
+    e.preventDefault(); // 폼 기본 제출 동작 방지
     try {
+      // 로그인 API 호출
       const response = await fetch('http://15.164.33.175:8080/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -27,10 +30,13 @@ const Login = () => {
       });
       if (!response.ok) throw new Error('로그인 실패');
       const data = await response.json();
-      if (data.token) {
-        localStorage.setItem('token', data.token);
-        localStorage.setItem('currentUser', username);
 
+      // 로그인 성공 시 토큰 저장
+      if (data.token) {
+        localStorage.setItem('token', data.token); // 인증 토큰 저장
+        localStorage.setItem('currentUser', username); // 현재 사용자명 저장
+
+        // remember me 체크 시 username 저장
         if (rememberId) {
           localStorage.setItem('rememberedUsername', username);
         } else {
@@ -61,13 +67,14 @@ const Login = () => {
         <div className="text-wrapper">Login</div>
 
         <form onSubmit={handleSubmit}>
+          {/* 아이디 입력 필드 */}
           <TextField
             id="username"
             label="Username"
             value={username}
             onChange={e => setUsername(e.target.value)}
           />
-
+          {/* 비밀번호 입력 필드 */}
           <TextField
             id="password"
             label="Password"
@@ -76,7 +83,7 @@ const Login = () => {
             onChange={e => setPassword(e.target.value)}
           />
 
-          {/* Figma 스타일 체크박스 */}
+          {/* Remember Username 체크박스 */}
           <div className="check-box-instance">
             <label className="check-box-1-line">
               <input
@@ -88,12 +95,13 @@ const Login = () => {
             </label>
           </div>
 
-          {/* Figma 스타일 버튼 */}
+          {/* 로그인 버튼 */}
           <Button
             type="submit"
             text="Login"
             className="button-instance button-4"
           />
+          {/* 회원가입 페이지로 이동 */}
           <Button
             text="Sign up"
             onClick={() => navigate('/register')}
