@@ -38,7 +38,11 @@ const fetchWithAuth = async (url, options = {}) => {
   if (!res.ok) {
     const text = await res.text();
     console.error(`API Error ${res.status} response:`, text);
-    throw new Error(`HTTP ${res.status}: ${text}`);
+    // 메시지 형식("HTTP 409: ...")은 그대로 두고, 상태 코드와 파싱된 본문({ status, error, message, current })을 함께 싣는다
+    const err = new Error(`HTTP ${res.status}: ${text}`);
+    err.status = res.status;
+    try { err.body = JSON.parse(text); } catch { err.body = null; }
+    throw err;
   }
   const contentType = res.headers.get('content-type') || '';
   if (contentType.includes('application/json')) {
@@ -47,8 +51,16 @@ const fetchWithAuth = async (url, options = {}) => {
   return res.blob();
 };
 
-// API 서버 기본 URL
-const API_BASE = 'http://15.164.33.175:8080';
+// API 서버 기본 URL: main 프로세스의 설정(XOR_API_BASE 또는 userData/config.json, 기본 http://localhost:8080)을 따른다
+export const API_BASE = (() => {
+  try {
+    const { ipcRenderer } = window.require('electron');
+    return ipcRenderer.sendSync('get-config').apiBase;
+  } catch (e) {
+    console.error('설정을 읽지 못해 기본 서버 주소를 씁니다:', e);
+    return 'http://localhost:8080';
+  }
+})();
 
 
 
@@ -97,6 +109,8 @@ export const getPresignedDownloadUrl = async (key, expire = 15) => {
 
 /**
  * 싱크 폴더 등록
+ * 같은 이름의 폴더가 이미 있으면 409이고 err.body.current가 기존 폴더다.
+ * (화면의 폴더 등록은 main 프로세스의 sync:register-folder를 쓴다. 엔진이 고른 경로를 함께 기억해야 하기 때문이다.)
  */
 export const sendSyncFolder = async (folderPath) => {
   const userId = getUserIdFromToken();
@@ -196,37 +210,19 @@ export const deleteSyncFolder = async (folderId) => {
 
 
 /**
- * 초기 동기화: 전체 파일 메타데이터 전송
- * POST /users/{userId}/sync-folders/{folderId}/sync
- */
-export const syncFolder = async (syncFolderId, clientFiles = [], deletedFileIds = []) => {
-  const userId = getUserIdFromToken();
-  if (!userId) throw new Error('유효한 토큰이 없습니다.');
-  return fetchWithAuth(
-    `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/sync`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clientFiles, deletedFileIds }),
-    }
-  );
-};
-
-/**
  * 폴더 내 파일 목록 조회
- * GET /users/{userId}/sync-folders/{folderId}/files?path=폴더/서브폴더
+ * GET /users/{userId}/sync-folders/{folderId}/files
+ *
+ * 서버는 항상 폴더 전체(삭제되지 않은 파일)를 돌려준다. relativePath는 실제 상대 경로("sub/foo.txt")이고
+ * 항목마다 fileId, version, hash, size, originalName, lastModified가 있다.
+ * (POST …/sync 는 서버에서 없어졌다. 초기 동기화는 main 프로세스의 엔진이 한다.)
  */
-export const getFolderFileList = async (syncFolderId, folderPath = '') => {
+export const getFolderFileList = async (syncFolderId) => {
   const userId = getUserIdFromToken();
   if (!userId) throw new Error('유효한 토큰이 없습니다.');
-
-  // 빈 문자열이면 path 파라미터 생략
-  const query = folderPath
-    ? `?path=${folderPath.split('/').map(encodeURIComponent).join('/')}`
-    : '';
 
   const list = await fetchWithAuth(
-    `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files${query}`,
+    `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files`,
     { method: 'GET' }
   );
   if (!Array.isArray(list)) return [];
@@ -276,14 +272,18 @@ export const getFolderFileMeta = async (syncFolderId, relativePath) => {
  *
  * @param {string|number} syncFolderId 싱크 폴더 ID
  * @param {string|number} fileId        삭제할 파일의 ID
- * @returns {Promise<any>}
+ * @param {number} [baseVersion]        목록에서 본 version. 그 사이 다른 기기가 고쳤으면 409(err.status, err.body.current)
+ * @returns {Promise<{ changeSeq: number, message: string }>}
  */
-export const deleteFolderFile = async (syncFolderId, fileId) => {
+export const deleteFolderFile = async (syncFolderId, fileId, baseVersion) => {
   const userId = getUserIdFromToken();
   if (!userId) throw new Error('유효한 토큰이 없습니다.');
 
   const encodedFileId = encodeURIComponent(fileId);
-  const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${encodedFileId}`;
+  const query = baseVersion !== undefined && baseVersion !== null
+    ? `?baseVersion=${encodeURIComponent(baseVersion)}`
+    : '';
+  const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/files/${encodedFileId}${query}`;
 
   return fetchWithAuth(url, { method: 'DELETE' });
 };
@@ -308,15 +308,16 @@ export const getFileVersions = async (syncFolderId, fileId) => {
   const versions = await fetchWithAuth(url, { method: 'GET' });
 
 
-  // 각 버전에 lastModified나 createdAt을 포함하도록 가공
+  // 버전당 1행: versionNumber, versionType, originalSize, storedSize, hash, deviceId, deviceName, createdDate, conflictWith
+  // 시각 필드는 createdDate다. 기존 화면 코드가 읽던 lastModified에도 같은 값을 넣어 둔다.
   if (Array.isArray(versions)) {
     return versions.map(v => ({
       ...v,
-      lastModified: v.lastModified || v.createdAt || null
+      lastModified: v.createdDate || null
     }));
   }
 
-  return fetchWithAuth(url, { method: 'GET' });
+  return [];
 };
 
 
@@ -350,10 +351,12 @@ export const downloadFileVersion = async (syncFolderId, fileId, versionNumber) =
 
   // 헤더에서 파일명 추출
   const contentDisposition = res.headers.get('content-disposition') || '';
-  const filenameMatch = contentDisposition.match(/filename\*?=.*(?:''|")?(.+?)(?:;|$)/i);
-  const filename = filenameMatch
-    ? decodeURIComponent(filenameMatch[1])
-    : `version-${versionNumber}`;
+  // 서버 형식: attachment; filename="<pct>"; filename*=UTF-8''<pct> (UTF-8 퍼센트 인코딩)
+  const filenameMatch = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+  let filename = `version-${versionNumber}`;
+  if (filenameMatch) {
+    try { filename = decodeURIComponent(filenameMatch[1].trim()); } catch { /* 해석 실패 시 기본 이름 */ }
+  }
 
   const mimeType = res.headers.get('content-type') || 'application/octet-stream';
   const blob = await res.blob();
