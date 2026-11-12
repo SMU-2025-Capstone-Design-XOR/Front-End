@@ -1,9 +1,7 @@
 // src/pages/Home.jsx
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Menu, MenuItem, getCurrentWindow } from '@electron/remote';
-import crypto from 'crypto';
-import mime from 'mime-types';
 import { dialog } from '@electron/remote';
 import { Buffer } from 'buffer';
 
@@ -15,12 +13,9 @@ import FolderContextMenu from '../components/FolderContextMenu';
 import { UserContextMenu } from '../components/UserContextMenu';
 
 import {
-  sendSyncFolder,
   getSyncFolder,
   deleteSyncFolder,
-  syncFolder,
   getFolderFileList,
-  uploadFile,
   downloadFolderFile,
 } from '../apiService';
 
@@ -29,37 +24,23 @@ const fs = window.require('fs');
 import os from 'os';
 import path from 'path';
 
-
-
 /**
- * 백엔드-저장 절대경로(예: "/Users/oldUser/XOR/A/MyDocs/latest/MyDocs")
- * 를 “최종 사용자 머신”의 홈 디렉터리 구조에 맞게 다시 계산하는 함수.
- * 최상위 폴더 이름(여기서는 “MyDocs”)만 뽑아서 userDir/MyDocs 로 재구성.
+ * 서버의 폴더 목록에 "이 기기에서의 위치(localPath)"를 붙여 화면용 목록을 만든다.
+ * 위치는 main 프로세스의 동기화 엔진이 기억한다: 폴더를 등록한 기기는 고른 경로,
+ * 다른 기기는 ~/XOR/{사용자명}/{폴더 이름}. 엔진이 아직 연결하기 전이면 기본 위치로 계산한다.
+ * 폴더 이름은 path.basename(folderPath)가 아니라 서버가 내려주는 name을 쓴다.
  */
-function computeLocalPathFromServerPath(serverPath, userDir) {
-  if (!serverPath || !userDir) return null;
-  // serverPath 예시:
-  //    "/Users/oldUser/XOR/A/MyDocs/latest/MyDocs"
-  // 우선 baseName 을 뽑으면 “MyDocs”가 나옴
-  const folderName = path.basename(serverPath);
-  // localPath 는 “/Users/currentMachine/XOR/A/MyDocs”
-  return path.join(userDir, folderName);
-}
-
-/**
- * 서버-메타 데이터에 포함되어 있던 raw relativePath(예: "sub/foo.txt/latest/foo.txt")
- * 에서 “latest”와 중복된 파일명 부분을 제거해서 진짜 경로("sub/foo.txt")로 만드는 헬퍼
- */
-function normalizeRelPath(raw) {
-  if (!raw) return raw;
-  const parts = raw.split('/');
-  // latest가 중간에 끼어있고, 그 다음 이름이 원본 파일명과 같다면
-  const latestIndex = parts.indexOf('latest');
-  if (latestIndex > 0 && parts[latestIndex + 1] === parts[latestIndex - 1]) {
-    // latest와 그 뒤의 중복 파일명을 제거
-    parts.splice(latestIndex); // 'latest' 이후 전부 제거
-  }
-  return parts.join('/');
+function toViewFolders(serverFolders, engineFolders, userDir) {
+  return serverFolders.map(folder => {
+    const folderName = folder.name || path.basename(folder.folderPath || '');
+    const linked = engineFolders.find(f => Number(f.id) === Number(folder.id));
+    return {
+      id: folder.id,
+      serverPath: folder.folderPath, // 처음 등록한 기기의 경로 (참고용)
+      localPath: linked ? linked.localRoot : path.join(userDir, folderName),
+      folderName,
+    };
+  });
 }
 
 export default function Home() {
@@ -72,14 +53,18 @@ export default function Home() {
   ? path.join(os.homedir(), 'XOR', xorUser)
   : null;
 
-  // --- ① 서버에서 받아온 “원본” folder 객체 리스트 (각 객체에 id, folderPath 등이 포함되어 옴)  
-  const [rawFolders, setRawFolders] = useState([]);
-
-  // --- ② 화면에 렌더링할 때는 “실제 로컬 경로(localPath)”를 포함시킨 리스트로 변환 
+  // 화면에 렌더링할 폴더 목록 ({ id, serverPath, localPath, folderName })
   const [syncFolders, setSyncFolders] = useState([]);
 
-  // fs.watch 인스턴스 저장용
-  const watchersRef = useRef({});
+  // 서버의 폴더 목록 + 엔진이 기억하는 로컬 위치를 다시 읽는다
+  const reloadFolders = async () => {
+    const data = await getSyncFolder();
+    const allFolders = Array.isArray(data) ? data : [];
+    const engineFolders = await ipcRenderer.invoke('sync:folders');
+    const view = toViewFolders(allFolders, engineFolders, userDir);
+    setSyncFolders(view);
+    return view;
+  };
 
   useEffect(() => {
     if (!userDir) {
@@ -90,35 +75,8 @@ export default function Home() {
 
     (async () => {
       try {
-        // 1) 백엔드로부터 등록된 모든 sync 폴더 리스트 받아옴
-        const data = await getSyncFolder();
-        const allFolders = Array.isArray(data) ? data : [];
-
-        // 2) 이 계정(xorUser)과 연결된 항목만 선별
-        //    (백엔드에 저장된 folderPath 는 모든 계정(다른 머신 포함)의 절대경로가 있을 수 있음)
-        //    → 폴더 이름만 뽑아서, userDir/MyFolderName 구조로 다시 localPath 재계산
-        const userSyncFolders = allFolders
-          .filter(folder => {
-            // 예: backend folder.folderPath: "/Users/oldUser/XOR/A/MyDocs"
-            //    thisUserDir: "/Users/currentMachine/XOR/A"
-            //    여기서는 “서버상 어딘가에 A 계정 폴더 구조” 로만 분리하기 위해
-            //    path.sep + xorUser + path.sep 이 포함되어 있는지로 필터
-            return folder.folderPath.includes(path.join('XOR', xorUser, path.sep));
-          })
-          .map(folder => {
-            const localPath = computeLocalPathFromServerPath(folder.folderPath, userDir);
-            // 화면에서 쓸 수 있도록 필요한 데이터를 정리해서 반환
-            return {
-              id: folder.id,
-              serverPath: folder.folderPath, // 디버깅/참조용
-              localPath,                     // 실제 로컬 입출력에 사용할 절대경로
-              folderName: path.basename(folder.folderPath),
-            };
-          });
-
-        setRawFolders(allFolders);
-        setSyncFolders(userSyncFolders);
-
+        // 등록된 모든 sync 폴더는 이 계정의 것이다 (다른 기기에서 등록한 폴더 포함)
+        await reloadFolders();
       } catch (err) {
         if (err.message.startsWith('HTTP 403')) {
           localStorage.removeItem('token');
@@ -130,188 +88,55 @@ export default function Home() {
         }
       }
     })();
-    // (async () => {
-    //   try {
-    //     const data = await getSyncFolder();
-    //     // 기존 동기화 폴더 목록
-    //     const allFolders = Array.isArray(data) ? data : [];
-    //     // 사용자 계정 폴더 내의 동기화 폴더만 필터링
-    //     const userSyncFolders = allFolders.filter(folder => folder.folderPath.startsWith(userDir));
-    //     setSyncFolders(userSyncFolders);
 
-    //   } catch (err) {
-    //     if (err.message.startsWith('HTTP 403')) {
-    //       localStorage.removeItem('token');
-    //       alert('세션이 만료되었습니다. 다시 로그인 해주세요.');
-    //       navigate('/');
-    //     } else {
-    //       console.error('폴더 목록 로드 오류:', err);
-    //       alert('폴더 목록을 불러오지 못했습니다.');
-    //     }
-    //   }
-    // })();
-
-    // IPC로 삭제 알림 구독
+    // 엔진이 알려 주는 폴더 변화: 서버에서 삭제됨 / 다른 기기가 등록한 폴더가 연결됨
     const onRemoved = (_e, { folderId }) => {
       setSyncFolders(prev => prev.filter(f => f.id !== folderId));
     };
     ipcRenderer.on('sync-folder-removed', onRemoved);
 
-    // 추가 이벤트
-    const onAdded = (_e, folder) => {
-      // 백엔드가 보낸 folder.folderPath 는 절대경로(이전 머신 경로)일 수 있음
-      // → 고유 ID는 같으므로, rawFolders 에서 동일 ID 있으면 건너뜀
-      if (rawFolders.some(f => f.id === folder.id)) return;
-
-      // 새로 rawFolders에 추가
-      setRawFolders(prev => [...prev, folder]);
-
-      // 해당 폴더가 이 계정(xorUser) 소속인지 확인
-      if (!folder.folderPath.includes(path.join('XOR', xorUser, path.sep))) return;
-
-      // 새로 localPath 계산
-      const newLocalPath = computeLocalPathFromServerPath(folder.folderPath, userDir);
-      setSyncFolders(prev => [
-        ...prev,
-        { id: folder.id, serverPath: folder.folderPath, localPath: newLocalPath, folderName: path.basename(folder.folderPath) }
-      ]);
+    const onAdded = () => {
+      reloadFolders().catch(err => console.error('폴더 목록 갱신 오류:', err));
     };
-    ipcRenderer.on('dosync-folder-added', onAdded);    
-    // const onAdded = (_e, folder) => {
-
-    //   if (!folder.folderPath.startsWith(userDir)) return;
-    //   setSyncFolders(prev => {
-    //     // 이미 같은 ID 가 있으면 아무 동작도 안 함
-    //     if (prev.some(f => f.id === folder.id)) {
-    //       return prev;
-    //     }
-    //     return [...prev, folder];
-    //   });
-
-    // };
-    // ipcRenderer.on('dosync-folder-added', onAdded);
-
+    ipcRenderer.on('dosync-folder-added', onAdded);
 
     return () => {
       ipcRenderer.removeListener('sync-folder-removed', onRemoved);
       ipcRenderer.removeListener('dosync-folder-added', onAdded);
     };
-    
+
   }, [userDir, navigate]);
 
-  
+
   // 2) “싱크 폴더 추가” 버튼 핸들러
   const handleSelectFolder = async () => {
     // ① Electron 다이얼로그로 폴더 선택
     const sel = await ipcRenderer.invoke('open-folder-dialog');
     if (!sel) return;
 
-    // ② 현재 머신 userDir(~/XOR/{xorUser})이 없다면 생성
-    if (!fs.existsSync(userDir)) {
-      fs.mkdirSync(userDir, { recursive: true });
-    }
-
-    // ③ 선택된 폴더 이름만 따와서 userDir 아래에 동일한 이름으로 복사할 대상 경로 생성
-    const folderName = path.basename(sel);
-    const targetDir  = path.join(userDir, folderName);
-
-    // ④ 이미 같은 이름으로 등록된 적 있으면 무시
-    if (syncFolders.some(f => f.folderPath === targetDir)) {
-      console.warn('이미 등록된 폴더:', targetDir);
-      return;
-    }    
-
-
-    // ⑤ “방금 추가된” 표시를 위해 IPC로 알림 (SyncManager 쪽에서 로컬 watcher를 무시하게 함)
-    ipcRenderer.send('local-folder-added', targetDir); // 무조건 보냄
-
-    // ⑥ userDir 아래로 실제 파일 복사
-    fs.mkdirSync(targetDir, { recursive: true });
-    copyRecursive(sel, targetDir);
-
     try {
-      // ⑦ 백엔드에 등록할 때는 targetDir(이 클라이언트 절대경로)을 사용
-      const created = await sendSyncFolder(targetDir);
-
-      // ⑧ 로컬 메타 데이터 생성 (초기 sync용)
-      const walkClientFiles = (root) => {
-        const results = [];
-
-        const walk = (currentDir) => {
-          const entries = fs.readdirSync(currentDir, { withFileTypes: true });
-          for (const entry of entries) {
-            const fullPath = path.join(currentDir, entry.name);
-            const stat = fs.statSync(fullPath);
-            if (entry.isFile()) {
-              const buffer = fs.readFileSync(fullPath);
-              const relativePath = path.relative(root, fullPath).replace(/\\/g, '/'); // 윈도우 호환
-              const mimeType = mime.lookup(fullPath) || 'application/octet-stream';
-              const hash = crypto.createHash('sha256').update(buffer).digest('hex');
-              results.push({
-                originalName: relativePath,
-                relativePath: relativePath,
-                size: stat.size,
-                hash: hash,
-                mimeType: mimeType,
-                lastModified: new Date(stat.mtimeMs).toISOString(),
-              });
-            } else if (entry.isDirectory()) {
-              walk(fullPath); // 하위 폴더 재귀 탐색
-            }
-          }
-        };
-
-        walk(root);
-        return results;
-      };
-
-      const clientFiles = walkClientFiles(targetDir);      
-
-      // ⑨ 백엔드와 비교하여 업로드/다운로드 리스트 받아오기
-      const { filesToUpload = [], filesToDownload = [] } =
-        await syncFolder(created.id, clientFiles, []);
-
-      // ⑩ 업로드해야 할 파일들 백엔드로 전송
-      for (const name of filesToUpload) {
-        await uploadFile(
-          created.id,
-          path.join(targetDir, name),
-          name
-        );
-      }
-      // ⑪ 다운로드해야 할 파일들 로컬에 저장
-      for (const name of filesToDownload) {
-        const blob = await downloadFolderFile(created.id, name);
-        const buf  = await blob.arrayBuffer();
-        fs.writeFileSync(path.join(targetDir, name), Buffer.from(buf));
+      // ② 고른 폴더를 그대로 등록한다(복사하지 않는다). 등록·초기 점검·업로드는 main 프로세스의 엔진이 한다.
+      const result = await ipcRenderer.invoke('sync:register-folder', sel);
+      if (!result.ok) {
+        if (result.status === 409) {
+          // 같은 이름의 폴더가 이미 있다. 다른 기기에서 등록한 폴더는 목록에 이미 연결돼 있다.
+          const name = result.current?.name || path.basename(sel);
+          alert(`같은 이름의 폴더가 이미 등록되어 있습니다: ${name}`);
+        } else {
+          console.error('폴더 등록 실패:', result);
+          alert('폴더 등록 중 오류가 발생했습니다.\n' + (result.message || ''));
+        }
+        return;
       }
 
-      // ⑫ 폴더 목록 갱신
-      const refreshed = await getSyncFolder();
-      // rawFolders와 syncFolders 모두 다시 재계산
-      setRawFolders(Array.isArray(refreshed) ? refreshed : []);
-      const userSyncFolders = (Array.isArray(refreshed) ? refreshed : [])
-        .filter(f => f.folderPath.includes(path.join('XOR', xorUser, path.sep)))
-        .map(f => {
-          return {
-            id: f.id,
-            serverPath: f.folderPath,
-            localPath: computeLocalPathFromServerPath(f.folderPath, userDir),
-            folderName: path.basename(f.folderPath),
-          };
-        });
-      setSyncFolders(userSyncFolders);      
-      // setSyncFolders(Array.isArray(refreshed) ? refreshed : []);
-      // 이 경로는 SyncManager 쪽에서 무시해야 할 “방금 추가된” 경로
-
-      // ⑬ SyncManager 쪽에 방금 추가된 사실 전달
-      ipcRenderer.send('flag-folder-added', created);
+      // ③ 폴더 목록 갱신
+      await reloadFolders();
     } catch (err) {
       console.error('폴더 등록/동기화 실패:', err);
       alert('폴더 등록 또는 동기화 중 오류가 발생했습니다.');
-    }      
-  };  
-  
+    }
+  };
+
 
   // --- 3) 폴더 카드 이벤트 & 메뉴 (기존 로직) ---
   const [ctxMenu, setCtxMenu]     = useState({ visible:false, x:0, y:0, folderId:null });
@@ -319,12 +144,12 @@ export default function Home() {
     e.preventDefault();
     setCtxMenu({ visible:true, x:e.clientX, y:e.clientY, folderId:id });
   };
-  // const onDoubleClick = folder =>
-  //   navigate(`/folder/${folder.id}`, { state:{ folderPath: folder.folderPath }});
   const onDoubleClick = (folder) => {
-    // folder.localPath 를 props로 넘김
-    navigate(`/folder/${folder.id}`, { state:{ folderPath: folder.serverPath }});
-  };  
+    // 이 기기에서의 위치(localPath)와 폴더 이름을 함께 넘긴다
+    navigate(`/folder/${folder.id}`, {
+      state: { folderPath: folder.serverPath, localPath: folder.localPath, folderName: folder.folderName }
+    });
+  };
   const handleInfo   = () => { alert(`Folder ID: ${ctxMenu.folderId}`); setCtxMenu(m=>({ ...m, visible:false })); };
 
   const handleRedown = async () => {
@@ -335,7 +160,6 @@ export default function Home() {
     return setCtxMenu(m => ({ ...m, visible: false }));
   }
   // ① localPath 에 이미 존재하면 무시
-  // const targetDir = folder.folderPath;
   const targetDir = folder.localPath;
   if (fs.existsSync(targetDir)) {
     alert('이미 로컬에 폴더가 존재합니다.');
@@ -346,54 +170,24 @@ export default function Home() {
     // ② 빈 디렉터리 생성
     fs.mkdirSync(targetDir, { recursive: true });
 
-     // ③ 서버에서 “latest” 파일 목록 받아오기
+    // ③ 서버의 파일 목록 (relativePath는 실제 상대 경로)
     const rawServerList = await getFolderFileList(folderId);
-    const fileEntries = rawServerList.filter(f =>
-      f.type === 'file' &&
-      (f.relativePath || f.originalName).includes('/latest/')
-    );
+    const serverFiles = rawServerList.filter(f => f.type === 'file');
 
-    // ④ 서버 메타 → 실제 하위 경로(relPath) 계산
-    const serverFiles = fileEntries.map(f => {
-      const rawPath = f.relativePath || f.originalName;           // ex: "sub/foo.txt/latest/foo.txt"
-      const relPath = normalizeRelPath(rawPath);                  // ex: "sub/foo.txt"
-      return {
-        rawPath,
-        relPath,
-        lastModified: f.lastModified,
-      };
-    });
-
-    // ⑤ “진짜 서브폴더” 목록 뽑아서 먼저 생성
-    const folderNames = new Set();
-    for (const { relPath } of serverFiles) {
-      const parts = relPath.split('/');
-      if (parts.length > 1) folderNames.add(parts[0]);
-    }
-    for (const sub of folderNames) {
-      const absDir = path.join(targetDir, sub);
-      fs.mkdirSync(absDir, { recursive: true });
-    }
-
-    // ⑥ 파일 다운로드 및 mtime 동기화
-    for (const { rawPath, relPath, lastModified } of serverFiles) {
-      const name = path.basename(relPath);
+    // ④ 파일 다운로드 (하위 디렉터리는 깊이에 상관없이 만든다)
+    for (const { relativePath } of serverFiles) {
+      const name = path.basename(relativePath);
       if (name.startsWith('.')) continue;  // 숨김파일 스킵
 
       try {
-        console.warn(`🌐 폴더 내 파일 다운로드: ${rawPath}`);
-        const blob = await downloadFolderFile(folderId, rawPath);
+        const blob = await downloadFolderFile(folderId, relativePath);
         const buf  = await blob.arrayBuffer();
-        const dest = path.join(targetDir, relPath);
+        const dest = path.join(targetDir, relativePath);
 
         fs.mkdirSync(path.dirname(dest), { recursive: true });
         fs.writeFileSync(dest, Buffer.from(buf));
-
-        // mtime 동기화
-        const mtime = new Date(lastModified).getTime() / 1000;
-        fs.utimesSync(dest, mtime, mtime);
       } catch (e) {
-        console.warn(`⚠️ 다운로드 실패(무시): ${rawPath}`, e.message);
+        console.warn(`⚠️ 다운로드 실패(무시): ${relativePath}`, e.message);
       }
     }
 
@@ -406,44 +200,19 @@ export default function Home() {
   }
 };
 
-  
+
   const handleDelete = async () => {
     if (!confirm('삭제하시겠습니까?')) return setCtxMenu(m=>({ ...m, visible:false }));
-    // 백엔드에서 삭제 요청
-    await deleteSyncFolder(ctxMenu.folderId);
-    const refreshed = await getSyncFolder();
-    setSyncFolders(Array.isArray(refreshed)?refreshed:[]);
-
-    // 삭제 후 다시 syncFolders 계산
-    const userSyncFolders = (Array.isArray(refreshed) ? refreshed : [])
-      .filter(f => f.folderPath.includes(path.join('XOR', xorUser, path.sep)))
-      .map(f => ({
-        id: f.id,
-        serverPath: f.folderPath,
-        localPath: computeLocalPathFromServerPath(f.folderPath, userDir),
-        folderName: path.basename(f.folderPath),
-      }));
-    setSyncFolders(userSyncFolders);
-
-    // SyncManager 쪽에 삭제 알림
-    const toDel = syncFolders.find(f => f.id === ctxMenu.folderId);
-    if (toDel) {
-      ipcRenderer.send('sync-folder-removed', {
-        folderId:   ctxMenu.folderId,
-        folderPath: toDel.serverPath
-      });
+    try {
+      // 백엔드에서 삭제 요청 (서버의 파일·버전 기록이 지워진다. 로컬 폴더는 그대로 둔다)
+      await deleteSyncFolder(ctxMenu.folderId);
+      // 엔진의 감시를 멈추고 상태 파일을 지운다
+      await ipcRenderer.invoke('sync:remove-folder', ctxMenu.folderId);
+      await reloadFolders();
+    } catch (err) {
+      console.error('폴더 삭제 실패:', err);
+      alert('폴더 삭제 중 오류가 발생했습니다.');
     }
-
-    // // → 바로 SyncManager에게도 알려주기
-    // {
-    //   // 삭제 직전에, 현재 띄워진 syncFolders 배열에서 해당 folderPath를 찾아서
-    //   const toDel = syncFolders.find(f => f.id === ctxMenu.folderId);
-    //   ipcRenderer.send('sync-folder-removed', {
-    //     folderId:   ctxMenu.folderId,
-    //     folderPath: toDel?.folderPath   // Home 리스트의 folderPath
-    //   });
-    // }
-
 
     setCtxMenu(m=>({ ...m, visible:false }));
   };
@@ -454,6 +223,8 @@ export default function Home() {
   const closeUserMenu          = () => setUserMenu(m=>({ ...m, visible:false }));
   const handleLogout = () => {
     if (confirm('로그아웃?')) {
+      // 동기화 엔진을 멈춘다
+      ipcRenderer.invoke('sync:stop');
       // xorUser 만 지워도 충분합니다
       localStorage.removeItem('xorUser');
       localStorage.removeItem('token');
@@ -462,7 +233,7 @@ export default function Home() {
 
       navigate('/');
     }
-  };  
+  };
 
   return (
     <div className="home">
@@ -524,17 +295,3 @@ export default function Home() {
   );
 }
 
-// 간단한 재귀 복사 헬퍼 (Node 16+ 이시면 fs.cpSync 사용하셔도 됩니다)
-function copyRecursive(src, dest) {
-  for (const name of fs.readdirSync(src)) {
-    const from = path.join(src, name);
-    const to   = path.join(dest, name);
-    const stat = fs.statSync(from);
-    if (stat.isDirectory()) {
-      fs.mkdirSync(to, { recursive: true });
-      copyRecursive(from, to);
-    } else {
-      fs.copyFileSync(from, to);
-    }
-  }
-}

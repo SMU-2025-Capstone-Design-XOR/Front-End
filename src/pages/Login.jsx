@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ipcRenderer } from 'electron'; // Electron의 main process와 통신
 import '../css/login.css';
+import { API_BASE, getUserIdFromToken } from '../apiService';
 
 // Figma-to-React가 만들어준 컴포넌트 경로로 import
 import TextField from '../components/TextField';
@@ -23,7 +24,7 @@ const Login = () => {
     e.preventDefault(); // 폼 기본 제출 동작 방지
     try {
       // 로그인 API 호출
-      const response = await fetch('http://15.164.33.175:8080/auth/login', {
+      const response = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })
@@ -49,6 +50,13 @@ const Login = () => {
         // 계정 이름만 남겨도 되지만, 경로가 필요하다면 아래처럼 저장하세요
         localStorage.setItem('userDir', createdDir);
         localStorage.setItem('xorUser', username);     
+
+        // main 프로세스의 동기화 엔진 시작 (폴더별 전체 점검 → 변경 목록 → 폴링)
+        await ipcRenderer.invoke('sync:start', {
+          token: data.token,
+          userId: getUserIdFromToken(),
+          username,
+        });
 
         alert('로그인 성공!');
         navigate('/home');
