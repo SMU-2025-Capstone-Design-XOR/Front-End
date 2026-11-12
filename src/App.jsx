@@ -10,7 +10,7 @@ import Register from './pages/Register'; // 회원가입 페이지
 import Home from './pages/Home'; // 홈 화면 페이지
 import FolderPage from './pages/FolderPage'; // 홈 화면 내에서 폴더 진입 시 페이지
 import VersionManager from './pages/VersionManager'; // 폴더 내 파일의 버전관리목록 페이지
-import SyncManager from './SyncManager'; // 백그라운드 동기화 기능 컴포넌트
+// 동기화는 main 프로세스의 엔진(sync/)이 맡는다. 렌더러에는 동기화 컴포넌트를 두지 않는다.
 
  const App = () => {
   console.log('App이 정상적으로 로드되었습니다.'); // 디버깅용 콘솔 로그
@@ -24,20 +24,10 @@ import SyncManager from './SyncManager'; // 백그라운드 동기화 기능 컴
             <Route path="" element={<Login />} />
             {/* 회원가입 페이지 */}
             <Route path="/register" element={<Register />} />
-            {/* 홈 페이지 (파일 목록 + 백그라운드 동기화 기능) */}
-            <Route path="/home" element={
-              <>
-                <SyncManager />
-                <Home />
-              </>
-            } />
+            {/* 홈 페이지 (파일 목록) */}
+            <Route path="/home" element={<Home />} />
             {/* 특정 폴더 열람 페이지: URL에서 폴더 id 추출 */}
-            <Route path="/folder/:id" element={
-              <>
-                <SyncManager/>
-                <FolderPage />
-              </>
-            } />
+            <Route path="/folder/:id" element={<FolderPage />} />
             {/* 버전 관리 페이지 */}
               <Route path="/version" element={<VersionManager />} />
           </Routes>
