@@ -6,7 +6,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client'; // React 18+ 방식 (Concurrent Mode 지원)
 import App from './App'; // App.jsx에서 전체 라우팅 구조 정의
-import './css/login.css'; // 전역 스타일 import
+import './css/app.css'; // 전역 스타일
 
 // index.html에서 <div id="root"> 가져오기
 const container = document.getElementById('root');
