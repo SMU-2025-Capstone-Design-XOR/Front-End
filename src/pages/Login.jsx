@@ -1,125 +1,131 @@
 // src/pages/Login.jsx
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ipcRenderer } from 'electron'; // Electron의 main process와 통신
-import '../css/login.css';
+import React, { useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { API_BASE, getUserIdFromToken } from '../apiService';
+import Icon from '../components/Icon';
 
-// Figma-to-React가 만들어준 컴포넌트 경로로 import
-import TextField from '../components/TextField';
-import Button from '../components/Button';
+const { ipcRenderer } = window.require('electron');
 
 const Login = () => {
   const navigate = useNavigate();
-
+  const { state } = useLocation();
+  // 회원가입 직후에는 방금 만든 아이디를, 아니면 기억해 둔 아이디를 채워 둔다
   const savedUsername = localStorage.getItem('rememberedUsername') || '';
 
-  const [username, setUsername] = useState(savedUsername); // 아이디 입력 상태
-  const [password, setPassword] = useState('');             // 비밀번호 입력 상태
-  const [rememberId, setRememberId] = useState(!!savedUsername); // 체크 여부 상태
+  const [username, setUsername] = useState(state?.username || savedUsername);
+  const [password, setPassword] = useState('');
+  const [rememberId, setRememberId] = useState(!!savedUsername);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  // 로그인 요청 처리
   const handleSubmit = async (e) => {
-
-    e.preventDefault(); // 폼 기본 제출 동작 방지
+    e.preventDefault();
+    if (busy) return;
+    if (!username.trim() || !password) {
+      setError('아이디와 비밀번호를 입력해 주세요.');
+      return;
+    }
+    setBusy(true);
+    setError('');
     try {
-      // 로그인 API 호출
-      const response = await fetch(`${API_BASE}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
-      });
-      if (!response.ok) throw new Error('로그인 실패');
-      const data = await response.json();
-
-      // 로그인 성공 시 토큰 저장
-      if (data.token) {
-        localStorage.setItem('token', data.token); // 인증 토큰 저장
-        localStorage.setItem('currentUser', username); // 현재 사용자명 저장
-
-        // remember me 체크 시 username 저장
-        if (rememberId) {
-          localStorage.setItem('rememberedUsername', username);
-        } else {
-          localStorage.removeItem('rememberedUsername');
-        }
-
-
-        // 사용자 폴더 생성 요청 후, 실제 경로를 받아와서 필요하면 저장
-        const createdDir = await ipcRenderer.invoke('init-user-folder', username);
-        // 계정 이름만 남겨도 되지만, 경로가 필요하다면 아래처럼 저장하세요
-        localStorage.setItem('userDir', createdDir);
-        localStorage.setItem('xorUser', username);     
-
-        // main 프로세스의 동기화 엔진 시작 (폴더별 전체 점검 → 변경 목록 → 폴링)
-        await ipcRenderer.invoke('sync:start', {
-          token: data.token,
-          userId: getUserIdFromToken(),
-          username,
+      let response;
+      try {
+        response = await fetch(`${API_BASE}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
         });
-
-        alert('로그인 성공!');
-        navigate('/home');
-      } else {
-        throw new Error('토큰이 없습니다');
+      } catch (networkError) {
+        console.error('로그인 요청 실패:', networkError);
+        setError('서버에 연결할 수 없습니다. 서버가 켜져 있는지 확인해 주세요.');
+        return;
       }
-    } catch (error) {
-      console.error('로그인 에러:', error);
-      alert('로그인 실패. 다시 시도하세요.');
+      if (!response.ok) {
+        // 서버는 없는 아이디와 틀린 비밀번호를 모두 400으로 답한다
+        setError(response.status >= 500
+          ? '서버에서 오류가 났습니다. 잠시 뒤 다시 시도해 주세요.'
+          : '아이디 또는 비밀번호가 맞지 않습니다.');
+        return;
+      }
+      const data = await response.json();
+      if (!data.token) {
+        setError('서버 응답에 로그인 정보가 없습니다.');
+        return;
+      }
+
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('currentUser', username);
+      localStorage.setItem('xorUser', username);
+      if (rememberId) localStorage.setItem('rememberedUsername', username);
+      else localStorage.removeItem('rememberedUsername');
+
+      // main 프로세스의 동기화 엔진 시작 (폴더별 전체 점검 → 변경 목록 → 폴링).
+      // 같은 사용자가 다시 로그인한 경우에는 토큰만 바꿔 멈춰 있던 큐를 이어 간다.
+      await ipcRenderer.invoke('sync:start', {
+        token: data.token,
+        userId: getUserIdFromToken(),
+        username,
+      });
+      navigate('/home');
+    } catch (err) {
+      console.error('로그인 에러:', err);
+      setError('로그인하지 못했습니다. 다시 시도해 주세요.');
+    } finally {
+      setBusy(false);
     }
   };
 
   return (
-    <div className="login-page">
-      <div className="frame-2">
-        <div className="text-wrapper">Login</div>
-
-        <form onSubmit={handleSubmit}>
-          {/* 아이디 입력 필드 */}
-          <TextField
-            id="username"
-            label="Username"
-            value={username}
-            onChange={e => setUsername(e.target.value)}
-          />
-          {/* 비밀번호 입력 필드 */}
-          <TextField
-            id="password"
-            label="Password"
-            type="password"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-          />
-
-          {/* Remember Username 체크박스 */}
-          <div className="check-box-instance">
-            <label className="check-box-1-line">
-              <input
-                type="checkbox"
-                checked={rememberId}
-                onChange={() => setRememberId(prev => !prev)}
-              />
-              <span className="check-box-2">Remember Username</span>
-            </label>
-          </div>
-
-          {/* 로그인 버튼 */}
-          <Button
-            type="submit"
-            text="Login"
-            className="button-instance button-4"
-          />
-          {/* 회원가입 페이지로 이동 */}
-          <Button
-            text="Sign up"
-            onClick={() => navigate('/register')}
-            className="button-instance design-component-instance-node"
-          />
-        </form>
+    <div className="auth">
+      <div className="auth__brand">
+        <Icon name="logo" size={34} color="#2459D6" />
+        XOR
       </div>
+      <p className="auth__tagline">바뀐 부분만 저장하는 파일 백업·버전 관리·동기화</p>
+
+      <form className="auth__card" onSubmit={handleSubmit} noValidate>
+        <h1>로그인</h1>
+
+        {error && (
+          <div role="alert" className="alert">
+            <Icon name="error" size={16} sw={2.5} />
+            {error}
+          </div>
+        )}
+        {!error && state?.expired && (
+          <div role="status" className="alert alert--info">
+            <Icon name="lock" size={16} sw={2.5} />
+            로그인이 만료되었습니다. 다시 로그인하면 동기화가 이어집니다.
+          </div>
+        )}
+
+        <div className="field">
+          <label htmlFor="login-id">아이디</label>
+          <input
+            id="login-id" type="text" autoComplete="username" autoFocus={!username}
+            value={username} onChange={(e) => setUsername(e.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="login-pw">비밀번호</label>
+          <input
+            id="login-pw" type="password" autoComplete="current-password" autoFocus={!!username}
+            value={password} onChange={(e) => setPassword(e.target.value)}
+          />
+        </div>
+        <label className="check">
+          <input type="checkbox" checked={rememberId} onChange={() => setRememberId((v) => !v)} />
+          아이디 기억하기
+        </label>
+        <button type="submit" className="btn btn--primary auth__submit" disabled={busy}>로그인</button>
+        <p className="auth__foot">
+          계정이 없으신가요? <a role="link" tabIndex={0} onClick={() => navigate('/register')} onKeyDown={(e) => { if (e.key === 'Enter') navigate('/register'); }}>회원가입</a>
+        </p>
+      </form>
+
+      <p className="auth__note">서버 {API_BASE}</p>
     </div>
   );
-}
-
+};
 
 export default Login;
