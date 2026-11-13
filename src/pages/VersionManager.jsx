@@ -1,239 +1,236 @@
 // src/pages/VersionManager.jsx
-import React, { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { getCurrentWindow } from '@electron/remote';
+// 버전 기록 창 (시안 Versions). 별도 창으로 열리고 쿼리로 대상 파일을 받는다.
+import React, { useCallback, useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import path from 'path';
-import { getVersionNote, setVersionNote } from '../utils/versionNoteStore';
 
-import { ReButton } from '../components/ReButton';
-import { VersionItem } from "../components/VersionItem";
-import VersionContext from '../components/VersionContext';
-import back from "../assets/Version/back.svg";
-import '../css/version.css';
+import Icon, { fileIconOf } from '../components/Icon';
+import { Modal, useDialog } from '../components/Dialog';
+import { useToast } from '../components/Toast';
+import { formatSize, formatWhen, josa } from '../format';
+import { restoreToFolder, saveVersionAs, versionedName, RestoreError } from '../restore';
+import { getFileVersions, setVersionNote } from '../apiService';
 
-import {
-    getFileVersions,
-    downloadFileVersion,
-} from '../apiService';
+const { ipcRenderer } = window.require('electron');
+
+const NOTE_MAX = 500; // 서버의 FileVersion.NOTE_MAX_LENGTH와 같다
 
 export default function VersionManager() {
   const { search } = useLocation();
   const params = new URLSearchParams(search);
-  const folderId     = params.get('folderId');
+  const folderId = params.get('folderId');
   const fileId = params.get('fileId');
-  const relativePath = params.get('relativePath');
+  const relativePath = params.get('relativePath') || '';
+  const folderName = params.get('folderName') || '';
+  const fileName = relativePath ? path.posix.basename(relativePath) : '파일';
 
-  const [versions, setVersions] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const toast = useToast();
+  const dialog = useDialog();
 
-  const [versionNotes, setVersionNotes] = useState({});
-
-  // Context menu state
-  const [ctxVisible, setCtxVisible] = useState(false);
-  const [ctxX, setCtxX] = useState(0);
-  const [ctxY, setCtxY] = useState(0);
-  const [selectedVersion, setSelectedVersion] = useState(null);
-  
-
-  // Edit modal state
-  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [versions, setVersions] = useState(null); // 최신순. null = 불러오는 중
+  const [error, setError] = useState('');
+  // 삭제된 파일의 기록을 보는 중인가. 되살아나면(이 창에서 되돌리기 포함) 풀린다.
+  const [isDeleted, setIsDeleted] = useState(params.get('deleted') === '1');
+  const [noteTarget, setNoteTarget] = useState(null); // 메모를 고치는 중인 버전
   const [noteInput, setNoteInput] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
+  useEffect(() => { document.title = `${fileName} · 버전 기록`; }, [fileName]);
+
+  const load = useCallback(async () => {
     if (!folderId || !fileId) {
-      setError('folderId 또는 fileId가 없습니다.');
+      setError('어느 파일의 버전 기록인지 알 수 없습니다.');
       return;
     }
-    setLoading(true);
-    getFileVersions(folderId, fileId)
-      .then(list => {
-        const distinct = Array.from(
-          list.reduce((acc, v) => {
-            if (!acc.has(v.versionNumber)) acc.set(v.versionNumber, v);
-            return acc;
-          }, new Map())
-          .values()
-        )
-        console.log('getFileVersions 버전 응답:', distinct);
-        setVersions(distinct);
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error('버전 리스트 로드 실패', err);
-        setError('버전 리스트를 불러오지 못했습니다.');
-        setLoading(false);
-      });
+    try {
+      const list = await getFileVersions(folderId, fileId);
+      setVersions([...list].sort((a, b) => b.versionNumber - a.versionNumber));
+      setError('');
+    } catch (err) {
+      console.error('버전 목록 로드 실패:', err);
+      setError(err.status === 404 ? '파일이 서버에서 삭제되었습니다.' : '버전 기록을 불러오지 못했습니다.');
+    }
   }, [folderId, fileId]);
 
-  // Load notes map whenever versions change
+  useEffect(() => { load(); }, [load]);
+
+  // 이 파일이 바뀌면(되돌리기로 새 버전이 올라간 경우 포함) 목록을 다시 읽는다
   useEffect(() => {
-    async function loadNotes() {
-      const notes = {};
-      await Promise.all(
-        versions.map(async v => {
-          const note = await getVersionNote(fileId, v.versionNumber);
-          notes[v.versionNumber] = note || '';
-        })
-      );
-      setVersionNotes(notes);
-    }
-    if (versions.length) loadNotes();
-  }, [versions, folderId]);
+    const onChange = (channel) => (_e, payload) => {
+      if (Number(payload?.folderId) !== Number(folderId) || payload?.relativePath !== relativePath) return;
+      setIsDeleted(channel === 'sync-file-deleted');
+      load();
+    };
+    const handlers = ['sync-file-added', 'sync-file-updated', 'sync-file-deleted'].map((ch) => [ch, onChange(ch)]);
+    handlers.forEach(([ch, fn]) => ipcRenderer.on(ch, fn));
+    return () => handlers.forEach(([ch, fn]) => ipcRenderer.removeListener(ch, fn));
+  }, [folderId, relativePath, load]);
 
-  const handleRestore = async (versionNumber) => {
+  const latest = versions?.[0]?.versionNumber ?? 0;
+  const currentVersion = isDeleted ? null : latest; // 삭제된 파일에는 "현재" 버전이 없다
+
+  // ── 요약: 버전 수, 실제 저장한 크기, 전부 통째로 저장했을 때와 비교한 절감률 ──
+  const storedTotal = (versions || []).reduce((n, v) => n + (v.storedSize || 0), 0);
+  const originalTotal = (versions || []).reduce((n, v) => n + (v.originalSize || 0), 0);
+  const savedPercent = originalTotal > 0 ? Math.round((1 - storedTotal / originalTotal) * 100) : 0;
+
+  const openNote = (v) => {
+    setNoteTarget(v);
+    setNoteInput(v.note || '');
+  };
+
+  const saveNote = async () => {
+    if (!noteTarget || busy) return;
+    setBusy(true);
     try {
-      const { blob, filename, mimeType } = await downloadFileVersion(folderId, fileId, versionNumber);
-      // 브라우저 다운로드
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      const updated = await setVersionNote(folderId, fileId, noteTarget.versionNumber, noteInput);
+      setVersions((list) => list.map((v) => (v.versionNumber === noteTarget.versionNumber ? { ...v, note: updated.note || null } : v)));
+      setNoteTarget(null);
     } catch (err) {
-      console.error('버전 복원 실패', err);
-      alert('복원 중 오류가 발생했습니다: ' + err.message);
+      console.error('메모 저장 실패:', err);
+      toast.error('메모를 저장하지 못했습니다', err.body?.message || err.message);
+    } finally {
+      setBusy(false);
     }
   };
 
-  const handleContextMenu = (event, version) => {
-    event.preventDefault();
-    setSelectedVersion(version);
-    setCtxX(event.clientX);
-    setCtxY(event.clientY);
-    setCtxVisible(true);
+  const handleSaveAs = async (v) => {
+    try {
+      const saved = await saveVersionAs({
+        folderId, fileId, version: v.versionNumber, suggestedName: versionedName(fileName, v.versionNumber),
+      });
+      if (saved) toast.success(`v${v.versionNumber}${josa(String(v.versionNumber), '을', '를')} 저장했습니다`, saved);
+    } catch (err) {
+      console.error('버전 저장 실패:', err);
+      toast.error('저장하지 못했습니다', err.body?.message || err.message);
+    }
   };
 
-//   const handleCloseContext = () => {
-//     setCtxVisible(false);
-//     setSelectedVersion(null);
-//   };
+  // 이 버전으로 되돌리기: 그 내용을 동기화 폴더의 파일에 쓴다 → 엔진이 새 버전으로 올린다 (기록은 지워지지 않는다)
+  const handleRevert = async (v) => {
+    const n = v.versionNumber;
+    const current = versions.find((x) => x.versionNumber === latest);
+    if (!isDeleted && current && current.hash === v.hash) {
+      toast.info('이미 같은 내용입니다', `지금 파일은 v${n}과 내용이 같습니다.`);
+      return;
+    }
+    const ok = await dialog.confirm({
+      title: `v${n}${josa(String(n), '으로', '로')} 되돌릴까요?`,
+      message: isDeleted
+        ? `삭제된 ${fileName}${josa(fileName, '을', '를')} v${n} 내용으로 되살립니다. 새 버전(v${latest + 1})으로 저장되고 다른 기기에도 내려갑니다.`
+        : `이 PC의 ${fileName}${josa(fileName, '이', '가')} v${n} 내용으로 바뀌고 새 버전(v${latest + 1})으로 저장됩니다. 지금까지의 버전은 지워지지 않습니다.`,
+      confirmLabel: '되돌리기',
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await restoreToFolder({ folderId, fileId, version: n, relativePath, mustNotExist: isDeleted });
+      toast.success(
+        `v${n}${josa(String(n), '으로', '로')} 되돌렸습니다`,
+        `${fileName}${josa(fileName, '이', '가')} v${n} 내용으로 바뀌었고 v${latest + 1}${josa(String(latest + 1), '으로', '로')} 저장됩니다.`,
+      );
+    } catch (err) {
+      console.error('되돌리기 실패:', err);
+      toast.error('되돌리지 못했습니다', err instanceof RestoreError ? err.message : (err.body?.message || err.message));
+    } finally {
+      setBusy(false);
+    }
+  };
 
-const handleEdit = async () => {
-    if (!selectedVersion) return;
-    const oldNote = await getVersionNote(fileId, selectedVersion.versionNumber);
-    setNoteInput(oldNote || '');
-    setEditModalVisible(true);
-    setCtxVisible(false);
-};
+  const headIcon = fileIconOf(fileName);
+  const where = [folderName, path.posix.dirname(relativePath) !== '.' ? path.posix.dirname(relativePath) : ''].filter(Boolean).join('/');
 
-const saveEdit = async () => {
-    if (!selectedVersion) return;
-    await setVersionNote(fileId, selectedVersion.versionNumber, noteInput);
-    // setVersions(vs => [...vs]);
-    setVersionNotes(prev => ({
-        ...prev,
-        [selectedVersion.versionNumber]: noteInput
-      }));
-    setEditModalVisible(false);
-    setSelectedVersion(null);
-};
-  
-
-
-return (
-    <div className="version">
-      {/* 상단 헤더: 뒤로가기 + 타이틀 */}
-      <ReButton
-        className="vertitle"
-        frameClassName="button-instance"
-        text="Version Manager"
-        // onClick={() => getCurrentWindow().close()}
-      />
-      <img
-        className="back"
-        alt="Back"
-        src={back}
-        onClick={() => getCurrentWindow().close()}
-      />
-
-      {/* 파일 이름 레이블 */}
-      <div className="filen">
-        <div className="label-text-2">{relativePath ? path.basename(relativePath) : "파일명 없음"}</div>
-      </div>
-
-      {/* 로딩/에러 표시 */}
-      {loading && (
-        <div style={{ position: "absolute", top: 160, left: 75, color: "#555" }}>
-          로딩 중...
+  return (
+    <div className="page">
+      <header className="ver-header">
+        <div className="ver-header__icon"><Icon name={headIcon.name} size={24} /></div>
+        <div className="ver-header__title">
+          <h1>{fileName}</h1>
+          <p>버전 기록{where ? ` · ${where}` : ''}{isDeleted ? ' · 삭제된 파일' : ''}</p>
         </div>
-      )}
-      {error && (
-        <div style={{ position: "absolute", top: 160, left: 75, color: "red" }}>
-          {error}
-        </div>
-      )}
+        <button type="button" className="btn" onClick={() => window.close()}>닫기</button>
+      </header>
 
-        {/* 버전 목록 */}
-        <div className="version-list">
-            { !loading && !error && versions.length === 0 && (
-            <div style={{ color: "#555", padding: "20px 85px" }}>
-                버전이 없습니다.
-            </div>
-            )}
+      <main className="ver-main">
+        {error && <div role="alert" className="alert"><Icon name="error" size={16} sw={2.5} />{error}</div>}
+        {!error && versions === null && <p className="state-msg">불러오는 중</p>}
+        {!error && versions !== null && versions.length === 0 && <p className="state-msg">버전이 없습니다.</p>}
 
-            { !loading && !error && versions.map((v, idx) => {
-            const note = versionNotes[v.versionNumber] || '';
-            const label = `V${v.versionNumber} : ${note || 'File'}`;
-            const created = v.createdDate;
-            const formattedDate = created
-                ? new Date(created).toLocaleString()
-                : '';
-            return (
-                <div
-                key={v.versionId}
-                className="versionmap"
-                onContextMenu={e => handleContextMenu(e, v)}
-                >
-                <div className="div">
-                    <p className="text-wrapper">{label}</p>
-                </div>
-                
-                {formattedDate && (
-                    <p className="text-subtext-right">{formattedDate}</p>
-                )}
+        {versions !== null && versions.length > 0 && (
+          <>
+            <dl className="ver-stats">
+              <div><dt>버전</dt><dd>{versions.length}개</dd></div>
+              <div><dt>실제 저장한 크기</dt><dd>{formatSize(storedTotal)}</dd></div>
+              <div>
+                <dt>전부 통째로 저장했다면 {formatSize(originalTotal)}</dt>
+                {savedPercent > 0 ? <dd className="saved">{savedPercent}% 절감</dd> : <dd>절감 없음</dd>}
+              </div>
+            </dl>
 
-                <div
-                    className="restore"
-                    onClick={() => handleRestore(v.versionNumber)}
-                >
-                    <span className="label-text">Restore</span>
-                </div>
-                </div>
-            )
-            })}
-        </div>
+            <ol className="ver-list">
+              {versions.map((v) => {
+                const isCurrent = v.versionNumber === currentVersion;
+                return (
+                  <li key={v.versionNumber} className={`ver-item${isCurrent ? ' ver-item--current' : ''}`} data-version={v.versionNumber}>
+                    <div className="ver-item__top">
+                      <span className="ver-item__num">v{v.versionNumber}</span>
+                      {isCurrent && <span className="badge badge--solid">현재</span>}
+                      {v.versionType === 'SNAPSHOT'
+                        ? <span className="badge badge--dark">전체본</span>
+                        : <span className="badge badge--gray">변경분</span>}
+                      {v.conflictWith != null && <span className="badge badge--warn">v{v.conflictWith}{josa(String(v.conflictWith), '과', '와')} 동시에 수정됨</span>}
+                      <span className="ver-item__meta">{formatSize(v.storedSize)} 저장 · 파일 {formatSize(v.originalSize)}</span>
+                      <div className="spacer" />
+                      <span className="ver-item__meta">{formatWhen(v.createdDate)}{v.deviceName ? ` · ${v.deviceName}` : ''}</span>
+                    </div>
+                    <div className="ver-item__bottom">
+                      {v.note
+                        ? <p className="ver-item__note">{v.note}</p>
+                        : (
+                          <>
+                            <button type="button" className="btn btn--sm btn--dashed" style={{ gap: 6 }} onClick={() => openNote(v)}>
+                              <Icon name="plus" size={14} sw={2.5} />메모 추가
+                            </button>
+                            <div className="spacer" />
+                          </>
+                        )}
+                      {v.note && <button type="button" className="btn btn--sm" onClick={() => openNote(v)}>메모 수정</button>}
+                      {!isCurrent && (
+                        <>
+                          <button type="button" className="btn btn--sm" onClick={() => handleSaveAs(v)}>다른 이름으로 저장</button>
+                          <button type="button" className="btn btn--soft btn--sm" style={{ padding: '0 14px' }} disabled={busy} onClick={() => handleRevert(v)}>
+                            이 버전으로 되돌리기
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
 
-        
-      <VersionContext
-        x={ctxX}
-        y={ctxY}
-        visible={ctxVisible}
-        // onClose={handleCloseContext}
-        onEdit={handleEdit}
-      />
-      
-      {editModalVisible && selectedVersion &&(
-        <div className="modal-overlay">
-          <div className="modal">
-            <h2>V{selectedVersion?.versionNumber} 버전 정보 수정</h2>
-            <textarea
-              value={noteInput}
-              onChange={e => setNoteInput(e.target.value)}
-              rows={4}
-              style={{ width: '100%' }}
-            />
-            <div className="modal-buttons">
-              <button onClick={() => { setEditModalVisible(false); setSelectedVersion(null); }}>취소</button>
-              <button onClick={saveEdit}>저장</button>
-            </div>
+            <p className="ver-foot">
+              되돌리면 그 내용이 새 버전(v{latest + 1})으로 저장됩니다. 지금까지의 버전은 지워지지 않습니다.
+            </p>
+          </>
+        )}
+      </main>
+
+      {noteTarget && (
+        <Modal label="버전 메모" onClose={() => setNoteTarget(null)}>
+          <h3>v{noteTarget.versionNumber} 메모</h3>
+          <label htmlFor="memo" className="dialog__hint">이 버전에서 무엇을 바꿨는지 적어 두면 다른 기기에서도 보입니다.</label>
+          <textarea
+            id="memo" rows={3} maxLength={NOTE_MAX} value={noteInput}
+            onChange={(e) => setNoteInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) saveNote(); }}
+          />
+          <div className="dialog__actions">
+            <button type="button" className="btn" onClick={() => setNoteTarget(null)}>취소</button>
+            <button type="button" className="btn btn--primary" disabled={busy} onClick={saveNote}>저장</button>
           </div>
-        </div>
+        </Modal>
       )}
-
     </div>
   );
 }
