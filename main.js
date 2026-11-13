@@ -14,7 +14,6 @@ import remoteMain from '@electron/remote/main/index.js'; // 렌더러 프로세�
 import path from 'path'; // 파일 경로 유틸리티
 import fs from 'fs'; // 파일 시스템 모듈
 import os from 'os'; // 운영체제 관련 정보 모듈
-import Store from 'electron-store'; // JSON 형태의 간단한 영속 저장소
 
 // 동기화 엔진 (main 프로세스에서 돈다. docs/design.md §2.5)
 import { loadConfig } from './sync/config.js';
@@ -29,9 +28,6 @@ if (process.env.XOR_USER_DATA) {
 
 // ▶️ remote 기능 초기화 (렌더러에서 메인 API 접근 허용)
 remoteMain.initialize();
-
-// ▶️ electron-store 초기화 (버전 노트 저장용)
-const noteStore = new Store({ name: 'version-notes' })
 
 // ▶️ 동기화 엔진 상태 (로그인한 사용자 1명당 엔진 1개)
 let syncEngine = null;
@@ -101,42 +97,12 @@ function createXorRoot() {
 
   return xorRoot;
 }
-// 👤 사용자 계정별 폴더 생성 함수
-function createUserFolder(username) {
-  const userDir = path.join(os.homedir(), 'XOR', username);
-
-  if (!fs.existsSync(userDir)) {
-    try {
-      fs.mkdirSync(userDir, { recursive: true });
-      console.log(`🏠 User directory created at ${userDir}`);
-    } catch (err) {
-      console.error('Failed to create user directory:', err);
-    }
-  }
-
-  // 계정 폴더 내에 숨김 'Delete' 폴더 자동 생성
-  const deleteDir = path.join(userDir, '_Delete');
-  if (!fs.existsSync(deleteDir)) {
-    try {
-      fs.mkdirSync(deleteDir, { recursive: true });
-      console.log(`🗑️ Delete directory created at ${deleteDir}`);
-      // Windows에서만 추가로 숨김 속성 설정
-      if (process.platform === 'win32') {
-        require('child_process').execSync(`attrib +H "${deleteDir}"`);
-      }
-    } catch (err) {
-      console.error('Failed to create or hide Delete folder:', err);
-    }
-  }
-
-
-  return userDir;
-}
 // 🪟 메인 브라우저 윈도우 생성 함수
 function createWindow() {
   const win = new BrowserWindow({
     width: 1240, height: 924,
     minWidth: 800, minHeight: 600,
+    backgroundColor: '#F5F6F8',
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
@@ -145,6 +111,7 @@ function createWindow() {
     // icon: path.join(__dirname, 'src/assets/ICON/4.icns'), // macOS 앱 아이콘 설정 (필요 시 주석 해제)
   });
 
+  hideMenuBar(win);
   remoteMain.enable(win.webContents); // 이 창에서 remote 사용 가능하게 설정
   win.loadFile(path.join(__dirname, 'index.html')); // React 앱이 번들된 index.html 로딩
 
@@ -155,22 +122,33 @@ function createWindow() {
 }
 
 
-// ▶️ 새로 추가: 버전 관리용 윈도우 생성 함수
-function createVersionWindow(folderId, fileId, relativePath) {
+// 기본 메뉴줄(File, Edit…)을 숨긴다. macOS는 메뉴가 화면 위에 따로 있고 복사·붙여넣기 단축키가 거기 걸려 있어 그대로 둔다.
+function hideMenuBar(win) {
+  if (process.platform !== 'darwin') win.removeMenu();
+}
+
+// ▶️ 버전 기록 창
+function createVersionWindow({ folderId, fileId, relativePath, folderName, deleted }) {
   const win = new BrowserWindow({
-    width: 700, height: 500,
+    width: 840, height: 760,
+    minWidth: 560, minHeight: 420,
+    backgroundColor: '#F5F6F8',
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
     }
   });
+  hideMenuBar(win);
   remoteMain.enable(win.webContents);
-  // React 라우터에서 /version 페이지를 경로 파라미터로 열도록 구성
-  const url = `file://${path.join(__dirname, 'index.html')}#/version` +
-              `?folderId=${folderId}` +
-              `&fileId=${fileId}` +
-              `&relativePath=${encodeURIComponent(relativePath)}`;
-  win.loadURL(url);
+  // React 라우터의 /version 화면을 쿼리와 함께 연다
+  const query = new URLSearchParams({
+    folderId: String(folderId),
+    fileId: String(fileId),
+    relativePath: relativePath || '',
+    folderName: folderName || '',
+    deleted: deleted ? '1' : '',
+  });
+  win.loadFile(path.join(__dirname, 'index.html'), { hash: `/version?${query}` });
 }
 
 
@@ -180,18 +158,27 @@ app.whenReady().then(() => {
   createXorRoot();    // 루트 폴더 생성
   createWindow();     // 메인 창 생성
 
-  // IPC: 사용자 폴더 생성 요청 처리
-  ipcMain.handle('init-user-folder', (event, username) => {
-    const result = createUserFolder(username);
-    if (!result) {
-      throw new Error('사용자 폴더 생성 실패: 권한 부족 또는 디스크 오류');
-    }
-    return result;
+  // ▶️ 버전 기록 창 열기 { folderId, fileId, relativePath, folderName, deleted }
+  ipcMain.on('open-version-window', (_e, target) => {
+    createVersionWindow(target);
   });
 
-  // ▶️ 버전관리 페이지 관련 핸들러 추가
-  ipcMain.on('open-version-window', (_e, { folderId, fileId, relativePath }) => {
-    createVersionWindow(folderId, fileId, relativePath);
+  // ▶️ 탐색기에서 폴더 열기 → 성공하면 '' (shell.openPath의 규칙), 실패하면 오류 문구
+  ipcMain.handle('open-path', async (_e, target) => {
+    if (!target || !fs.existsSync(target)) return '폴더를 찾을 수 없습니다.';
+    return shell.openPath(target);
+  });
+  // ▶️ 탐색기에서 파일을 선택한 채로 보여 주기 (충돌 사본 위치 보기)
+  ipcMain.handle('show-item', (_e, target) => {
+    if (!target || !fs.existsSync(target)) return false;
+    shell.showItemInFolder(target);
+    return true;
+  });
+  // ▶️ "다른 이름으로 저장" 대화상자 → 고른 경로 또는 null
+  ipcMain.handle('save-dialog', async (event, defaultPath) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const { canceled, filePath } = await dialog.showSaveDialog(win, { defaultPath });
+    return canceled || !filePath ? null : filePath;
   });
 
   // ▶️ 동기화 엔진 IPC
@@ -204,7 +191,15 @@ app.whenReady().then(() => {
   ipcMain.handle('sync:start', (_e, session) => startSyncEngine(session));
   ipcMain.handle('sync:stop', () => stopSyncEngine());
   // 이 기기에서 각 폴더가 놓인 위치 [{ id, name, localRoot, blocked }]
-  ipcMain.handle('sync:folders', () => (syncEngine ? syncEngine.folderList() : []));
+  // registeredElsewhere: 기본 위치(~/XOR/{사용자명}/{폴더 이름})에 놓인 폴더 = 다른 기기에서 등록한 폴더
+  ipcMain.handle('sync:folders', () => {
+    if (!syncEngine || !syncSession) return [];
+    const defaultRoot = path.join(xorRootDir(), syncSession.username);
+    return syncEngine.folderList().map((f) => ({
+      ...f,
+      registeredElsewhere: path.resolve(f.localRoot) === path.resolve(defaultRoot, f.name),
+    }));
+  });
   ipcMain.handle('sync:get-status', () => (syncEngine ? syncEngine.getStatus() : { state: 'stopped' }));
   // 폴더 등록: 고른 경로를 그대로 이 기기의 동기화 위치로 쓴다 → { ok, folder } | { ok: false, status, message, current }
   ipcMain.handle('sync:register-folder', (_e, folderPath) => {
@@ -220,24 +215,17 @@ app.whenReady().then(() => {
 
 
   // 폴더 선택 다이얼로그 오픈
-  ipcMain.handle('open-folder-dialog', async () => {
-    const { canceled, filePaths } = await dialog.showOpenDialog({
+  ipcMain.handle('open-folder-dialog', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      title: '동기화할 폴더 선택',
       properties: ['openDirectory']
     });
     return canceled ? null : filePaths[0];
   });
 });
 
-// 버전 정보 관련 IPC 핸들러
-ipcMain.handle('get-version-note', (_e, { fileId, version }) => {
-  const key = `${fileId}-v${version}`
-  return noteStore.get(key, '')
-})
-ipcMain.handle('set-version-note', (_e, { fileId, version, note }) => {
-  const key = `${fileId}-v${version}`
-  noteStore.set(key, note)
-  return true
-})
+// 버전 메모는 서버에 저장한다 (PUT …/versions/{version}/note). 예전의 electron-store 'version-notes'는 쓰지 않는다.
 
 // 종료 전에 엔진을 멈춘다 (감시 해제)
 app.on('before-quit', () => { stopSyncEngine().catch(() => {}); });
