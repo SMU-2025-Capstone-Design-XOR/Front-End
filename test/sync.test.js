@@ -297,3 +297,21 @@ test('ApiError: 재시도·인증 분류', () => {
   assert.equal(new ApiError(403).auth, true); // 이 서버는 토큰이 없거나 만료되면 403을 준다
   assert.equal(new ApiError(404).auth, false);
 });
+
+test('큐: 다시 시도하기로 한 작업은 onRetry로 알리고, keys()는 기다리는 작업과 실행 중인 작업을 돌려준다', async () => {
+  const retried = [];
+  const q = new SerialQueue({ baseDelayMs: 1, onRetry: (key, err) => retried.push([key, err.message]) });
+  let calls = 0;
+  let seenWhileRunning = null;
+  q.enqueue('file:1:a.txt', async () => {
+    calls++;
+    seenWhileRunning = q.keys().sort();
+    if (calls === 1) throw Object.assign(new Error('네트워크 오류'), { retryable: true });
+  });
+  q.enqueue('poll:1', async () => {});
+  await q.idle();
+  assert.equal(calls, 2);
+  assert.deepEqual(retried, [['file:1:a.txt', '네트워크 오류']]);
+  assert.ok(seenWhileRunning.includes('file:1:a.txt'));
+  assert.deepEqual(q.keys(), []);
+});

@@ -7,9 +7,10 @@ export class SerialQueue {
    *   onAuthRequired(err)  인증 오류(err.auth)로 큐가 멈췄을 때
    *   onError(key, err)    다시 시도하지 않고 버린 작업
    *   onActive(bool)       큐가 일하기 시작/모두 끝남
+   *   onRetry(key, err)    실패한 작업을 나중에 다시 하기로 했을 때 (화면의 "다시 시도 중" 표시용)
    *   baseDelayMs/maxDelayMs/maxAttempts  재시도 간격(지수 증가)과 횟수
    */
-  constructor({ onAuthRequired, onError, onActive, baseDelayMs = 1000, maxDelayMs = 60000, maxAttempts = 8 } = {}) {
+  constructor({ onAuthRequired, onError, onActive, onRetry, baseDelayMs = 1000, maxDelayMs = 60000, maxAttempts = 8 } = {}) {
     this.jobs = new Map(); // key → { fn, notBefore, attempts }
     this.running = null;   // 실행 중인 키
     this.rerun = null;     // 실행 중인 키가 다시 들어오면 끝난 뒤 한 번 더 돌린다
@@ -20,6 +21,7 @@ export class SerialQueue {
     this.onAuthRequired = onAuthRequired;
     this.onError = onError;
     this.onActive = onActive;
+    this.onRetry = onRetry;
     this.baseDelayMs = baseDelayMs;
     this.maxDelayMs = maxDelayMs;
     this.maxAttempts = maxAttempts;
@@ -44,6 +46,13 @@ export class SerialQueue {
 
   has(key) {
     return this.jobs.has(key) || this.running === key;
+  }
+
+  /** 기다리거나 실행 중인 작업의 키 목록 (화면의 진행 표시용) */
+  keys() {
+    const keys = [...this.jobs.keys()];
+    if (this.running && !this.jobs.has(this.running)) keys.push(this.running);
+    return keys;
   }
 
   get size() {
@@ -137,6 +146,7 @@ export class SerialQueue {
         const delay = Math.min(this.maxDelayMs, this.baseDelayMs * 2 ** (attempts - 1));
         // 그 사이 같은 키가 새로 들어왔으면 그쪽을 따른다
         if (!this.jobs.has(key)) this.jobs.set(key, { fn: job.fn, notBefore: Date.now() + delay, attempts });
+        if (this.onRetry) this.onRetry(key, failure);
       } else if (this.onError) {
         this.onError(key, failure);
       }

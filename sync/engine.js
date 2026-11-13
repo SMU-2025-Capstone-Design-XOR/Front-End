@@ -86,6 +86,7 @@ export class SyncEngine {
     this.pollTimer = null;
     this.stopped = false;
     this.status = { state: 'idle' };
+    this.lastPollAt = null; // 서버의 폴더 목록을 마지막으로 받아 온 시각 (화면의 "마지막 확인")
 
     this.queue = new SerialQueue({
       baseDelayMs: opts.retryBaseMs ?? 1000,
@@ -96,6 +97,11 @@ export class SyncEngine {
       onAuthRequired: (err) => {
         this.log(`인증 오류로 동기화를 멈춥니다: ${err.message}`);
         this.#setStatus({ state: 'auth-required', message: '다시 로그인해 주세요.' });
+      },
+      onRetry: (key, err) => {
+        // 네트워크·5xx 등으로 미룬 작업이 있다. 화면에 "다시 시도 중"으로 알린다 (판단 로직과는 무관)
+        if (this.status.state === 'auth-required') return;
+        this.#setStatus({ state: 'error', retrying: true, message: err.message, key });
       },
       onError: (key, err) => {
         this.log(`작업 실패(${key}): ${err.message}`);
@@ -152,8 +158,24 @@ export class SyncEngine {
     }));
   }
 
+  /**
+   * 화면 표시용 상태. 엔진의 상태에 진행 정보를 덧붙인다:
+   *   lastPollAt  마지막으로 서버를 확인한 시각(ms)
+   *   pending     처리를 기다리는 파일 수
+   *   folders     [{ id, pending, paths }] 폴더별 기다리는 파일 경로
+   */
   getStatus() {
-    return this.status;
+    const byFolder = new Map();
+    for (const key of this.queue.keys()) {
+      const m = /^file:(d+):(.*)$/s.exec(key);
+      if (!m) continue;
+      const id = Number(m[1]);
+      if (!byFolder.has(id)) byFolder.set(id, []);
+      byFolder.get(id).push(m[2]);
+    }
+    const folders = [...byFolder].map(([id, paths]) => ({ id, pending: paths.length, paths: paths.slice(0, 500) }));
+    const pending = folders.reduce((n, f) => n + f.pending, 0);
+    return { ...this.status, lastPollAt: this.lastPollAt, pending, folders };
   }
 
   /**
@@ -196,6 +218,7 @@ export class SyncEngine {
   async #refreshFolders() {
     const list = await this.api.listFolders(this.userId);
     if (!Array.isArray(list)) throw new Error('폴더 목록 응답이 배열이 아닙니다');
+    this.lastPollAt = Date.now();
     const ids = new Set(list.map((f) => Number(f.id)));
     for (const folder of list) {
       if (!this.folders.has(Number(folder.id))) {
