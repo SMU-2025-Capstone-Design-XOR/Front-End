@@ -346,7 +346,10 @@ export const downloadFileVersion = async (syncFolderId, fileId, versionNumber) =
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`HTTP ${res.status}: ${text}`);
+    const err = new Error(`HTTP ${res.status}: ${text}`);
+    err.status = res.status;
+    try { err.body = JSON.parse(text); } catch { err.body = null; }
+    throw err;
   }
 
   // 헤더에서 파일명 추출
@@ -362,4 +365,42 @@ export const downloadFileVersion = async (syncFolderId, fileId, versionNumber) =
   const blob = await res.blob();
 
   return { blob, filename, mimeType };
+};
+
+
+/**
+ * 버전 메모 수정 (서버에 저장되므로 다른 기기에서도 보인다)
+ * PUT /users/{userId}/sync-folders/{folderId}/files/{fileId}/versions/{version}/note  { note }
+ * 빈 문자열이면 메모를 지운다. 500자를 넘으면 400.
+ *
+ * @returns {Promise<VersionDTO>} 수정된 버전 1행 (note 포함)
+ */
+export const setVersionNote = async (syncFolderId, fileId, versionNumber, note) => {
+  const userId = getUserIdFromToken();
+  if (!userId) throw new Error('유효한 토큰이 없습니다.');
+  const url = `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}` +
+              `/files/${encodeURIComponent(fileId)}/versions/${encodeURIComponent(versionNumber)}/note`;
+  return fetchWithAuth(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ note }),
+  });
+};
+
+
+/**
+ * 폴더의 삭제된 파일 목록 (툼스톤)
+ * GET /users/{userId}/sync-folders/{folderId}/changes?since=0 의 deleted: true 항목이다.
+ * 항목: { fileId, relativePath, version, hash, size, deleted, lastModified, deviceId, changeSeq }
+ * (삭제한 시각은 응답에 없다. lastModified는 마지막으로 수정한 시각이다.)
+ */
+export const getDeletedFiles = async (syncFolderId) => {
+  const userId = getUserIdFromToken();
+  if (!userId) throw new Error('유효한 토큰이 없습니다.');
+  const res = await fetchWithAuth(
+    `${API_BASE}/users/${userId}/sync-folders/${syncFolderId}/changes?since=0`,
+    { method: 'GET' }
+  );
+  const changes = Array.isArray(res?.changes) ? res.changes : [];
+  return changes.filter(c => c.deleted);
 };
