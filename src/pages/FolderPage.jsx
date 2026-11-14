@@ -301,6 +301,15 @@ export default function FolderPage() {
     <div className="page">
       <Header />
       <main className="folder-main">
+        <div className="folder-nav">
+        {/* 뒤로: 하위 폴더에서는 한 단계 위로, 맨 위에서는 동기화 폴더 목록(홈)으로 */}
+        <button
+          type="button" className="btn btn--sm folder-nav__back"
+          onClick={() => { if (subPath) { setSubPath(dirOf(subPath)); setTab('files'); } else navigate('/home'); }}
+        >
+          <Icon name="back" size={16} sw={2.5} />
+          뒤로
+        </button>
         <nav aria-label="현재 위치" className="crumbs">
           <button type="button" onClick={() => navigate('/home')}>동기화 폴더</button>
           <span aria-hidden="true">/</span>
@@ -316,6 +325,7 @@ export default function FolderPage() {
             </React.Fragment>
           ))}
         </nav>
+        </div>
 
         <div className="folder-head">
           <div>

@@ -32,6 +32,7 @@ const SHAPES = {
   trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13',
   logout: 'M14 4h5v16h-5M10 8l-4 4 4 4M6 12h9',
   close: 'M6 6l12 12M18 6L6 18',
+  back: 'M19 12H5M11 6l-6 6 6 6',
   pause: 'M9 5v14M15 5v14',
   play: 'M8 5l11 7-11 7z',
 };
