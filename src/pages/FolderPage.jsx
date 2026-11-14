@@ -11,7 +11,7 @@ import { useToast } from '../components/Toast';
 import { useDialog } from '../components/Dialog';
 import { useSyncStatus } from '../syncStatus';
 import { formatSize, formatWhen, formatFull, josa, parseConflictCopy } from '../format';
-import { restoreToFolder, saveVersionAs, RestoreError } from '../restore';
+import { restoreToFolder, saveVersionAs, RestoreError, pausedNote } from '../restore';
 import {
   getSyncFolder,
   getFolderFileList,
@@ -222,7 +222,7 @@ export default function FolderPage() {
       await deleteFolderFile(id, file.fileId, file.version);
       // 로컬 파일은 여기서 지우지 않는다. 엔진이 삭제 표시(툼스톤)를 받아 휴지통으로 보낸다.
       ipcRenderer.send('sync:poll-now');
-      toast.success('삭제했습니다', `${name}${josa(name, '은', '는')} 삭제된 파일 탭에서 되살릴 수 있습니다.`);
+      toast.success('삭제했습니다', `${name}${josa(name, '은', '는')} 삭제된 파일 탭에서 되살릴 수 있습니다.${await pausedNote(id)}`);
     } catch (err) {
       if (err.status === 409) {
         ipcRenderer.send('sync:poll-now');
@@ -235,6 +235,37 @@ export default function FolderPage() {
     reload();
   };
 
+  // 하위 폴더 삭제: 서버에는 폴더가 따로 없으므로 그 아래 파일을 하나씩 지운다.
+  // 그 사이 다른 기기가 고친 파일(409)은 남긴다. 로컬 파일과 빈 폴더는 엔진이 삭제 표시를 받아 정리한다.
+  const handleDeleteDir = async (dir) => {
+    const dirPath = subPath ? `${subPath}/${dir.name}` : dir.name;
+    const targets = (files || []).filter((f) => f.relativePath.startsWith(`${dirPath}/`));
+    const ok = await dialog.confirm({
+      title: `${dir.name} 폴더를 삭제할까요?`,
+      message: `안의 파일 ${targets.length}개가 이 PC와 다른 기기에서 휴지통으로 이동합니다. 버전 기록은 남아 있어 삭제된 파일 탭에서 하나씩 되살릴 수 있습니다.`,
+      confirmLabel: '삭제',
+      danger: true,
+    });
+    if (!ok) return;
+    let deletedCount = 0;
+    let kept = 0;
+    let failed = 0;
+    for (const file of targets) {
+      try {
+        await deleteFolderFile(id, file.fileId, file.version);
+        deletedCount++;
+      } catch (err) {
+        if (err.status === 409) kept++;
+        else { failed++; console.error('파일 삭제 실패:', file.relativePath, err); }
+      }
+    }
+    ipcRenderer.send('sync:poll-now');
+    if (failed > 0) toast.error('일부를 삭제하지 못했습니다', `${deletedCount}개를 삭제했고 ${failed}개는 실패했습니다.`);
+    else if (kept > 0) toast.warn('일부는 삭제하지 않았습니다', `${deletedCount}개를 삭제했습니다. 다른 기기에서 방금 수정한 파일 ${kept}개는 남겼습니다.`);
+    else toast.success('폴더를 삭제했습니다', `${dir.name} 안의 파일 ${deletedCount}개는 삭제된 파일 탭에서 되살릴 수 있습니다.${await pausedNote(id)}`);
+    reload();
+  };
+
   // 되살리기: 마지막 버전을 원래 자리에 써 두면 엔진이 새 파일로 올리고, 서버가 같은 파일을 되살린다
   const [reviving, setReviving] = useState(null);
   const handleRevive = async (file) => {
@@ -242,7 +273,8 @@ export default function FolderPage() {
     setReviving(file.fileId);
     try {
       await restoreToFolder({ folderId: id, fileId: file.fileId, version: file.version, relativePath: file.relativePath, mustNotExist: true });
-      toast.success('되살렸습니다', `${name}${josa(name, '이', '가')} 이 폴더에 다시 생겼고, 곧 다른 기기에도 내려갑니다.`);
+      const note = await pausedNote(id);
+      toast.success('되살렸습니다', note ? `${name}${josa(name, '이', '가')} 이 폴더에 다시 생겼습니다.${note}` : `${name}${josa(name, '이', '가')} 이 폴더에 다시 생겼고, 곧 다른 기기에도 내려갑니다.`);
     } catch (err) {
       console.error('되살리기 실패:', err);
       toast.error('되살리지 못했습니다', err instanceof RestoreError ? err.message : (err.body?.message || err.message));
@@ -250,6 +282,15 @@ export default function FolderPage() {
       setReviving(null);
     }
   };
+
+  // 이 폴더(또는 전체)의 동기화가 멈춰 있는가: 머리 옆에 표시한다
+  const [pausedHere, setPausedHere] = useState(false);
+  useEffect(() => {
+    ipcRenderer.invoke('sync:folders').then((list) => {
+      setPausedHere(!!list.find((f) => Number(f.id) === Number(id))?.paused);
+    }).catch(() => {});
+  }, [id, status.pausedAll]);
+  const folderPaused = pausedHere || !!status.pausedAll;
 
   // ── 현재 위치 ──
   const segments = subPath ? subPath.split('/') : [];
@@ -278,7 +319,10 @@ export default function FolderPage() {
 
         <div className="folder-head">
           <div>
-            <h1>{title}</h1>
+            <div className="folder-head__title">
+              <h1>{title}</h1>
+              {folderPaused && <span className="badge badge--gray">동기화 중지됨</span>}
+            </div>
             <p>{herePath || '이 PC에 폴더를 준비하고 있습니다'}</p>
           </div>
           <button type="button" className="btn" onClick={openInExplorer}>탐색기에서 열기</button>
@@ -315,7 +359,17 @@ export default function FolderPage() {
                       </button>
                     </td>
                     <td className="num sub">파일 {dir.count}개</td>
-                    <td /><td /><td />
+                    <td /><td />
+                    <td className="actions">
+                      <div className="row-actions">
+                        <MenuButton
+                          label={`${dir.name} 폴더 메뉴`} className="icon-btn icon-btn--sm"
+                          items={[{ icon: 'trash', label: '폴더 삭제', danger: true, onClick: () => handleDeleteDir(dir) }]}
+                        >
+                          <Icon name="dots" size={18} />
+                        </MenuButton>
+                      </div>
+                    </td>
                   </tr>
                 ))}
                 {rows.map((file) => {

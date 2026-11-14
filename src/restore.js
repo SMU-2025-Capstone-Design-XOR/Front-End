@@ -72,3 +72,14 @@ export function versionedName(fileName, version) {
   const dot = fileName.lastIndexOf('.');
   return dot > 0 ? `${fileName.slice(0, dot)}_v${version}${fileName.slice(dot)}` : `${fileName}_v${version}`;
 }
+
+/** 이 폴더(또는 전체)의 동기화가 멈춰 있으면 알림 뒤에 붙일 안내를, 아니면 빈 문자열을 돌려준다. */
+export async function pausedNote(folderId) {
+  try {
+    const [folders, status] = await Promise.all([ipcRenderer.invoke('sync:folders'), ipcRenderer.invoke('sync:get-status')]);
+    const paused = status.pausedAll || folders.find((f) => Number(f.id) === Number(folderId))?.paused;
+    return paused ? ' 동기화가 멈춰 있어, 다시 시작하면 이 PC와 다른 기기에 반영됩니다.' : '';
+  } catch {
+    return '';
+  }
+}

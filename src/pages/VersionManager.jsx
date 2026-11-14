@@ -8,7 +8,7 @@ import Icon, { fileIconOf } from '../components/Icon';
 import { Modal, useDialog } from '../components/Dialog';
 import { useToast } from '../components/Toast';
 import { formatSize, formatWhen, josa } from '../format';
-import { restoreToFolder, saveVersionAs, versionedName, RestoreError } from '../restore';
+import { restoreToFolder, saveVersionAs, versionedName, RestoreError, pausedNote } from '../restore';
 import { getFileVersions, setVersionNote } from '../apiService';
 
 const { ipcRenderer } = window.require('electron');
@@ -127,7 +127,7 @@ export default function VersionManager() {
       await restoreToFolder({ folderId, fileId, version: n, relativePath, mustNotExist: isDeleted });
       toast.success(
         `v${n}${josa(String(n), '으로', '로')} 되돌렸습니다`,
-        `${fileName}${josa(fileName, '이', '가')} v${n} 내용으로 바뀌었고 v${latest + 1}${josa(String(latest + 1), '으로', '로')} 저장됩니다.`,
+        `${fileName}${josa(fileName, '이', '가')} v${n} 내용으로 바뀌었고 v${latest + 1}${josa(String(latest + 1), '으로', '로')} 저장됩니다.${await pausedNote(folderId)}`,
       );
     } catch (err) {
       console.error('되돌리기 실패:', err);
