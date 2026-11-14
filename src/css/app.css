@@ -133,6 +133,7 @@ button.pill { cursor: pointer; }
 .pill--accent { background: var(--accent-soft); color: var(--accent-dark); }
 .pill--warn { background: var(--warn-soft); color: var(--warn); }
 .pill--danger { background: var(--danger-soft); color: var(--danger); }
+.pill--gray { background: var(--line-soft); color: var(--text-mid); }
 
 /* ───── 메뉴 (⋯ 버튼, 사용자 메뉴) ───── */
 .menu {
@@ -276,6 +277,10 @@ button.pill { cursor: pointer; }
   background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-xl);
 }
 .side-card h2 { font-size: 17px; font-weight: 700; }
+.side-card__actions { display: flex; flex-direction: column; gap: 8px; }
+.side-card__note { color: var(--text-sub); font-size: 13px; }
+.folder-row__relocate { flex: none; padding: 0 14px; border-radius: var(--radius-m); font-size: 14px; }
+.folder-head__title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .device-list { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 8px 12px; font-size: 14px; }
 .device-list dt { color: var(--text-sub); }
 .device-list dd { overflow-wrap: anywhere; }

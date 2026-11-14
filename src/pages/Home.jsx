@@ -10,7 +10,7 @@ import Icon from '../components/Icon';
 import MenuButton from '../components/Menu';
 import { useToast } from '../components/Toast';
 import { useDialog } from '../components/Dialog';
-import { useSyncStatus } from '../syncStatus';
+import { useSyncStatus, refreshSyncStatus } from '../syncStatus';
 import { formatAgo, formatFull, formatInterval, josa } from '../format';
 import { API_BASE, getSyncFolder, deleteSyncFolder } from '../apiService';
 
@@ -39,6 +39,7 @@ function toViewFolders(serverFolders, engineFolders) {
       createdAt: folder.createdAt,
       localPath: linked ? linked.localRoot : null,
       blocked: !!linked?.blocked,
+      paused: !!linked?.paused, // 사용자가 이 폴더의 동기화를 멈춰 둠
       registeredElsewhere: !!linked?.registeredElsewhere,
     };
   }).sort((a, b) => a.name.localeCompare(b.name, 'ko'));
@@ -82,10 +83,14 @@ export default function Home() {
     // 엔진이 알려 주는 폴더 변화: 서버에서 삭제됨 / 다른 기기가 등록한 폴더가 연결됨
     ipcRenderer.on('sync-folder-removed', load);
     ipcRenderer.on('dosync-folder-added', load);
+    // 폴더의 멈춤·중지 여부가 바뀌었을 수 있다 (머리줄에서 다시 시작한 경우, 폴더가 없어져 멈춘 경우)
+    const onStatus = (_e, payload) => { if (payload?.state !== 'syncing' && payload?.state !== 'conflict') load(); };
+    ipcRenderer.on('sync:status', onStatus);
     const timer = setInterval(() => tick((n) => n + 1), 10000); // "마지막 확인" 글자 갱신
     return () => {
       ipcRenderer.removeListener('sync-folder-removed', load);
       ipcRenderer.removeListener('dosync-folder-added', load);
+      ipcRenderer.removeListener('sync:status', onStatus);
       clearInterval(timer);
     };
   }, [navigate, reloadFolders, toast]);
@@ -159,6 +164,56 @@ export default function Home() {
     }
   };
 
+  // 동기화 중지·다시 시작 (이 기기에만 해당한다. 앱을 껐다 켜도 유지된다)
+  const togglePause = async (folder) => {
+    try {
+      await ipcRenderer.invoke(folder.paused ? 'sync:resume-folder' : 'sync:pause-folder', folder.id);
+      await reloadFolders();
+      refreshSyncStatus();
+      if (folder.paused) {
+        toast.success('동기화를 다시 시작했습니다', status.pausedAll
+          ? `${folder.name}의 중지는 풀었지만 전체 동기화가 멈춰 있습니다. 전체를 다시 시작하면 이어집니다.`
+          : `${folder.name}에서 멈춘 동안 바뀐 내용을 맞추고 있습니다.`);
+      } else {
+        toast.info('동기화를 멈췄습니다', `${folder.name}${josa(folder.name, '은', '는')} 다시 시작할 때까지 이 PC에서 올리지도 받지도 않습니다. 다른 기기는 계속 동기화됩니다.`);
+      }
+    } catch (err) {
+      console.error('동기화 중지/다시 시작 실패:', err);
+      toast.error('바꾸지 못했습니다', err.message);
+    }
+  };
+
+  const toggleAll = async () => {
+    try {
+      await ipcRenderer.invoke(status.pausedAll ? 'sync:resume-all' : 'sync:pause-all');
+      await refreshSyncStatus();
+      if (status.pausedAll) toast.success('동기화를 다시 시작했습니다', '멈춘 동안 바뀐 내용을 맞추고 있습니다. 따로 멈춰 둔 폴더는 그대로 멈춰 있습니다.');
+      else toast.info('전체 동기화를 멈췄습니다', '다시 시작할 때까지 이 PC에서 올리지도 받지도 않습니다. 다른 기기는 계속 동기화됩니다.');
+    } catch (err) {
+      console.error('전체 동기화 중지/다시 시작 실패:', err);
+      toast.error('바꾸지 못했습니다', err.message);
+    }
+  };
+
+  // 위치 다시 지정: 로컬 폴더가 없어져 멈춘 폴더에 새 위치를 고른다. 새 위치에 없는 파일은 서버에서 내려받는다.
+  const handleRelocate = async (folder) => {
+    const selected = await ipcRenderer.invoke('open-folder-dialog', `${folder.name} 폴더의 새 위치 선택`);
+    if (!selected) return;
+    try {
+      const result = await ipcRenderer.invoke('sync:relocate-folder', folder.id, selected);
+      if (!result.ok) {
+        toast.error('위치를 바꾸지 못했습니다', result.message || '');
+        return;
+      }
+      await reloadFolders();
+      refreshSyncStatus();
+      toast.success('위치를 다시 지정했습니다', `${result.localRoot}에서 이어 갑니다. 이 위치에 없는 파일은 서버에서 내려받습니다.`);
+    } catch (err) {
+      console.error('위치 다시 지정 실패:', err);
+      toast.error('위치를 바꾸지 못했습니다', err.message);
+    }
+  };
+
   const pendingOf = (id) => status.folders?.find((f) => Number(f.id) === Number(id))?.pending || 0;
 
   const renderFolder = (folder) => {
@@ -169,6 +224,9 @@ export default function Home() {
         items={[
           { icon: 'folder', label: '탐색기에서 열기', onClick: () => openInExplorer(folder) },
           { icon: 'info', label: '폴더 정보', onClick: () => showInfo(folder) },
+          ...(folder.localPath && !folder.blocked
+            ? [{ icon: folder.paused ? 'play' : 'pause', label: folder.paused ? '동기화 다시 시작' : '동기화 중지', onClick: () => togglePause(folder) }]
+            : []),
           'sep',
           { icon: 'trash', label: '동기화 폴더 삭제', danger: true, onClick: () => handleDelete(folder) },
         ]}
@@ -187,9 +245,10 @@ export default function Home() {
               <span className="badge badge--danger">동기화 중지 · 폴더를 찾을 수 없음</span>
             </div>
             <p className="folder-row__path">
-              {folder.localPath} · 파일을 지운 것으로 처리하지 않도록 멈췄습니다. 폴더를 이 위치에 되돌려 놓고 로그아웃한 뒤 다시 로그인하면 이어집니다.
+              {folder.localPath} · 파일을 지운 것으로 처리하지 않도록 멈췄습니다
             </p>
           </div>
+          <button type="button" className="btn btn--strong folder-row__relocate" onClick={() => handleRelocate(folder)}>위치 다시 지정</button>
           {menu}
         </section>
       );
@@ -200,7 +259,9 @@ export default function Home() {
         <div className="folder-row__body">
           <div className="folder-row__name">
             <h2>{folder.name}</h2>
-            {!folder.localPath
+            {folder.paused || status.pausedAll
+              ? <span className="badge badge--gray">동기화 중지됨</span>
+              : !folder.localPath
               ? <span className="badge badge--gray">연결하는 중</span>
               : pending > 0
                 ? <span className="badge badge--accent">동기화 중 · {pending}개 남음</span>
@@ -264,10 +325,26 @@ export default function Home() {
               <dt>확인 주기</dt><dd>{formatInterval(config.pollIntervalMs)}</dd>
               <dt>마지막 확인</dt><dd>{formatAgo(status.lastPollAt)}</dd>
             </dl>
-            <button type="button" className="btn btn--strong btn--lg" onClick={() => ipcRenderer.send('sync:poll-now')}>
-              <Icon name="sync" size={18} sw={2.5} />
-              지금 동기화
-            </button>
+            <div className="side-card__actions">
+              {status.pausedAll ? (
+                <button type="button" className="btn btn--primary btn--lg" onClick={toggleAll}>
+                  <Icon name="play" size={18} sw={2.5} />
+                  동기화 다시 시작
+                </button>
+              ) : (
+                <>
+                  <button type="button" className="btn btn--strong btn--lg" onClick={() => ipcRenderer.send('sync:poll-now')}>
+                    <Icon name="sync" size={18} sw={2.5} />
+                    지금 동기화
+                  </button>
+                  <button type="button" className="btn" onClick={toggleAll}>
+                    <Icon name="pause" size={18} sw={2.5} />
+                    전체 동기화 중지
+                  </button>
+                </>
+              )}
+              {status.pausedAll && <p className="side-card__note">이 PC의 동기화가 모두 멈춰 있습니다. 다른 기기는 계속 동기화됩니다.</p>}
+            </div>
           </section>
 
           <section className="side-card" style={{ gap: 12 }}>

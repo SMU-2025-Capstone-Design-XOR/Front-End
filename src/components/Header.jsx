@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import os from 'os';
 import Icon from './Icon';
 import MenuButton from './Menu';
-import { useSyncStatus, clearConflicts, revealConflictCopy } from '../syncStatus';
+import { useSyncStatus, clearConflicts, revealConflictCopy, refreshSyncStatus } from '../syncStatus';
 import { formatAgo } from '../format';
 
 const { ipcRenderer } = window.require('electron');
@@ -20,7 +20,7 @@ export function logout(navigate) {
   navigate('/');
 }
 
-/** 엔진 상태 다섯 가지(syncing·idle·error·auth-required·conflict)를 머리줄에 보여 준다. */
+/** 엔진 상태 다섯 가지(syncing·idle·error·auth-required·conflict)와 전체 중지를 머리줄에 보여 준다. */
 function SyncPill() {
   const navigate = useNavigate();
   const { status, conflicts } = useSyncStatus();
@@ -35,6 +35,14 @@ function SyncPill() {
     return (
       <button type="button" className="pill pill--danger" onClick={() => navigate('/', { state: { expired: true } })}>
         <Icon name="lock" size={16} sw={2.5} />다시 로그인 필요
+      </button>
+    );
+  }
+  if (status.pausedAll) {
+    // 사용자가 이 기기의 동기화를 전부 멈춰 두었다. 누르면 다시 시작한다.
+    return (
+      <button type="button" className="pill pill--gray" onClick={() => ipcRenderer.invoke('sync:resume-all').then(refreshSyncStatus)}>
+        <Icon name="pause" size={16} sw={2.5} />동기화 중지됨 · 다시 시작
       </button>
     );
   }
