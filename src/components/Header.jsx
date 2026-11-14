@@ -38,6 +38,14 @@ function SyncPill() {
       </button>
     );
   }
+  if (status.blocked > 0) {
+    // 로컬 폴더가 없어져 멈춘 폴더가 있다. 홈의 빨간 줄에서 위치를 다시 지정할 수 있다.
+    return (
+      <button type="button" className="pill pill--danger" onClick={() => navigate('/home')}>
+        <Icon name="error" size={16} sw={2.5} />폴더 {status.blocked}개 멈춤 · 보기
+      </button>
+    );
+  }
   if (status.pausedAll) {
     // 사용자가 이 기기의 동기화를 전부 멈춰 두었다. 누르면 다시 시작한다.
     return (

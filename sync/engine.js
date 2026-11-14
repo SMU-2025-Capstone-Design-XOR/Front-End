@@ -278,7 +278,9 @@ export class SyncEngine {
     }
     const folders = [...byFolder].map(([id, paths]) => ({ id, pending: paths.length, paths: paths.slice(0, 500) }));
     const pending = folders.reduce((n, f) => n + f.pending, 0);
-    return { ...this.status, lastPollAt: this.lastPollAt, pending, folders, pausedAll: this.pausedAll };
+    // 로컬 폴더가 없어져 멈춘 폴더 수. 큐가 비면 state는 'idle'이 되므로 화면은 이 값으로 "모두 동기화됨"이 아님을 안다
+    const blocked = [...this.folders.values()].filter((ctx) => ctx.blocked).length;
+    return { ...this.status, lastPollAt: this.lastPollAt, pending, folders, pausedAll: this.pausedAll, blocked };
   }
 
   /**

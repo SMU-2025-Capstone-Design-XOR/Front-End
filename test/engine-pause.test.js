@@ -222,6 +222,7 @@ test('멈춘 동안 폴더가 통째로 없어지면 다시 시작할 때 멈춤
   await settle(engine);
 
   assert.equal(engine.folderList()[0].blocked, true);
+  assert.equal(engine.getStatus().blocked, 1, '화면에 알릴 멈춘 폴더 수');
   assert.deepEqual(server.calls.delete, []);
   assert.deepEqual(server.live(folderId), ['a.txt', 'sub/b.txt']);
 
@@ -232,6 +233,7 @@ test('멈춘 동안 폴더가 통째로 없어지면 다시 시작할 때 멈춤
   engine.resumeFolder(folderId);
   await settle(engine);
   assert.equal(engine.folderList()[0].blocked, false);
+  assert.equal(engine.getStatus().blocked, 0);
   assert.deepEqual(server.calls.delete, []);
 });
 
