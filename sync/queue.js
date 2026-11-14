@@ -71,6 +71,15 @@ export class SerialQueue {
     this.#schedule();
   }
 
+  /** 조건에 맞는 키의 기다리는 작업을 버린다 (실행 중인 것은 끝까지 가지만, 끝난 뒤 다시 돌리지는 않는다). */
+  drop(match) {
+    for (const key of [...this.jobs.keys()]) {
+      if (match(key)) this.jobs.delete(key);
+    }
+    if (this.running && this.rerun && match(this.running)) this.rerun = null;
+    this.#checkIdle();
+  }
+
   /** 기다리는 작업을 모두 버린다 (실행 중인 것은 끝까지 간다). */
   clear() {
     this.jobs.clear();

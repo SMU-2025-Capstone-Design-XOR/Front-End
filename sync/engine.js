@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { normalizeRel, isIgnored, conflictCopyName } from './paths.js';
-import { stateFilePath, loadState, saveState, removeState, emptyState } from './state.js';
+import { stateFilePath, loadState, saveState, removeState, emptyState, settingsFilePath, loadSettings, saveSettings } from './state.js';
 import { scanFolder, statFile, hashFile, hashBuffer } from './scanner.js';
 import { startWatcher } from './watcher.js';
 import { SerialQueue } from './queue.js';
@@ -87,6 +87,9 @@ export class SyncEngine {
     this.stopped = false;
     this.status = { state: 'idle' };
     this.lastPollAt = null; // 서버의 폴더 목록을 마지막으로 받아 온 시각 (화면의 "마지막 확인")
+    // 사용자가 건 전체 동기화 중지. 앱을 껐다 켜도 유지한다 (폴더별 중지는 폴더 상태 파일의 paused)
+    this.settingsFile = settingsFilePath(this.stateDir, this.userId);
+    this.pausedAll = loadSettings(this.settingsFile).pausedAll;
 
     this.queue = new SerialQueue({
       baseDelayMs: opts.retryBaseMs ?? 1000,
@@ -145,17 +148,117 @@ export class SyncEngine {
     this.pollNow();
   }
 
-  /** 지금 한 번 폴더 목록과 변경 목록을 확인한다. */
+  /** 지금 한 번 폴더 목록과 변경 목록을 확인한다. 전체 중지 중에는 하지 않는다. */
   pollNow() {
-    if (this.stopped) return;
+    if (this.stopped || this.pausedAll) return;
     this.#enqueueFolderRefresh();
   }
 
-  /** 이 기기에서 각 폴더가 놓인 위치 [{ id, name, localRoot, blocked }] */
+  /** 이 기기에서 각 폴더가 놓인 위치 [{ id, name, localRoot, blocked, paused }] (paused = 이 폴더를 따로 멈춰 둠) */
   folderList() {
     return [...this.folders.values()].map((ctx) => ({
-      id: ctx.id, name: ctx.name, localRoot: ctx.localRoot, blocked: ctx.blocked,
+      id: ctx.id, name: ctx.name, localRoot: ctx.localRoot, blocked: ctx.blocked, paused: ctx.paused,
     }));
+  }
+
+  // ───────── 동기화 중지·다시 시작 (사용자가 거는 것. 이 기기에만 해당한다) ─────────
+  //
+  // 중지는 자동으로 오가는 것(올리기·받기·삭제 전파·주기적 확인)을 모두 멈춘다.
+  // 다시 시작은 앱을 껐다 켠 것과 같다: 폴더를 훑고(전체 점검) 변경 목록을 받아 같은 결정표로 처리한다.
+  // 폴더는 "전체도 안 멈췄고 그 폴더도 안 멈췄을 때"만 돈다. 전체를 다시 시작해도 따로 멈춘 폴더는 풀리지 않는다.
+
+  async pauseFolder(folderId) {
+    const ctx = this.folders.get(Number(folderId));
+    if (!ctx || ctx.paused) return false;
+    ctx.paused = true;
+    this.#savePaused(ctx);
+    await this.#deactivate(ctx);
+    this.log(`[${ctx.name}] 동기화 중지`);
+    this.emit('sync:status', this.status);
+    return true;
+  }
+
+  resumeFolder(folderId) {
+    const ctx = this.folders.get(Number(folderId));
+    if (!ctx || !ctx.paused) return false;
+    ctx.paused = false;
+    this.#savePaused(ctx);
+    this.log(`[${ctx.name}] 동기화 다시 시작`);
+    if (!this.pausedAll) this.#activate(ctx);
+    this.emit('sync:status', this.status);
+    return true;
+  }
+
+  async pauseAll() {
+    if (this.pausedAll) return false;
+    this.pausedAll = true;
+    saveSettings(this.settingsFile, { pausedAll: true });
+    this.queue.drop((key) => key === 'folders');
+    await Promise.all([...this.folders.values()].map((ctx) => this.#deactivate(ctx)));
+    this.log('전체 동기화 중지');
+    this.emit('sync:status', this.status);
+    return true;
+  }
+
+  resumeAll() {
+    if (!this.pausedAll) return false;
+    this.pausedAll = false;
+    saveSettings(this.settingsFile, { pausedAll: false });
+    this.log('전체 동기화 다시 시작');
+    for (const ctx of this.folders.values()) {
+      if (!ctx.paused) this.#activate(ctx);
+    }
+    this.#enqueueFolderRefresh();
+    this.emit('sync:status', this.status);
+    return true;
+  }
+
+  /**
+   * 로컬 폴더가 없어져 멈춘 폴더(blocked)에 새 위치를 지정한다.
+   * 기준 항목을 버리고 커서를 0으로 되돌려 "새 기기 최초 연결"과 같은 경로로 다시 맞춘다:
+   * 서버 파일이 새 위치에 없으면 내려받고, 내용이 같으면 기준만 기록하고, 다르면 충돌로 처리한다.
+   * 기준이 없으므로 "없는 파일 = 삭제"로 판단되는 일이 없다.
+   * @returns {{ ok: true, localRoot } | { ok: false, message }}
+   */
+  relocateFolder(folderId, newRoot) {
+    const ctx = this.folders.get(Number(folderId));
+    if (!ctx) return { ok: false, message: '폴더를 찾을 수 없습니다.' };
+    if (!ctx.blocked) return { ok: false, message: '위치를 다시 지정할 필요가 없는 폴더입니다.' };
+    let stat = null;
+    try { stat = fs.statSync(newRoot); } catch { /* 없음 */ }
+    if (!stat || !stat.isDirectory()) return { ok: false, message: '고른 위치가 폴더가 아닙니다.' };
+    const target = path.resolve(newRoot);
+    for (const other of this.folders.values()) {
+      if (other === ctx) continue;
+      const root = path.resolve(other.localRoot);
+      if (target === root || target.startsWith(root + path.sep) || root.startsWith(target + path.sep)) {
+        return { ok: false, message: `다른 동기화 폴더(${other.name})와 겹치는 위치입니다.` };
+      }
+    }
+    const state = emptyState(target);
+    state.folderName = ctx.name;
+    if (ctx.paused) state.paused = true;
+    saveState(ctx.stateFile, state);
+    ctx.state = state;
+    ctx.localRoot = target;
+    ctx.blocked = false;
+    ctx.remote.clear();
+    ctx.absentSince.clear();
+    this.log(`[${ctx.name}] 위치 다시 지정: ${target} (서버 내용과 처음부터 다시 맞춥니다)`);
+    if (!this.#paused(ctx)) this.#activate(ctx);
+    this.emit('sync:status', this.status);
+    return { ok: true, localRoot: target };
+  }
+
+  #paused(ctx) {
+    return this.pausedAll || ctx.paused;
+  }
+
+  #savePaused(ctx) {
+    if (ctx.paused) ctx.state.paused = true;
+    else delete ctx.state.paused;
+    // 폴더가 없어 멈춘(blocked) 폴더도 상태 파일은 있다. 중지 여부만 고쳐 적는다.
+    saveState(ctx.stateFile, ctx.state);
   }
 
   /**
@@ -167,7 +270,7 @@ export class SyncEngine {
   getStatus() {
     const byFolder = new Map();
     for (const key of this.queue.keys()) {
-      const m = /^file:(d+):(.*)$/s.exec(key);
+      const m = /^file:(\d+):(.*)$/s.exec(key);
       if (!m) continue;
       const id = Number(m[1]);
       if (!byFolder.has(id)) byFolder.set(id, []);
@@ -175,7 +278,7 @@ export class SyncEngine {
     }
     const folders = [...byFolder].map(([id, paths]) => ({ id, pending: paths.length, paths: paths.slice(0, 500) }));
     const pending = folders.reduce((n, f) => n + f.pending, 0);
-    return { ...this.status, lastPollAt: this.lastPollAt, pending, folders };
+    return { ...this.status, lastPollAt: this.lastPollAt, pending, folders, pausedAll: this.pausedAll };
   }
 
   /**
@@ -206,7 +309,7 @@ export class SyncEngine {
   // ───────── 폴더 연결 ─────────
 
   #tick() {
-    if (this.stopped || this.pollingPaused) return;
+    if (this.stopped || this.pollingPaused || this.pausedAll) return;
     this.#enqueueFolderRefresh();
   }
 
@@ -245,9 +348,12 @@ export class SyncEngine {
 
     let state = loadState(stateFile);
     // 서버 DB가 초기화되면 폴더 id가 다시 쓰인다. 이름이 다른 폴더의 옛 상태 파일은 버린다.
-    if (state && path.basename(state.localRoot).normalize('NFC') !== name) state = null;
+    // (상태에 폴더 이름이 적혀 있으면 그것으로, 예전 상태 파일이면 localRoot의 마지막 요소로 비교한다)
+    const stateName = state ? (state.folderName ?? path.basename(state.localRoot)).normalize('NFC') : null;
+    if (state && stateName !== name) state = null;
     if (state && preferred && path.resolve(state.localRoot) !== path.resolve(preferred)) state = null;
     if (!state) state = emptyState(preferred ?? path.join(this.xorRoot, this.username, name));
+    state.folderName = name;
 
     const ctx = {
       id, name, stateFile, state,
@@ -256,9 +362,19 @@ export class SyncEngine {
       absentSince: new Map(), // 경로 → 디스크에서 없어진 것을 처음 본 시각
       watcher: null,
       blocked: false,
+      paused: state.paused === true, // 사용자가 이 폴더를 멈춰 두었는가
     };
     this.folders.set(id, ctx);
+    this.#activate(ctx);
+  }
 
+  /**
+   * 폴더의 감시·전체 점검·폴링을 시작한다. 처음 연결할 때와 중지했다가 다시 시작할 때 모두 여기를 거친다.
+   * 그래서 "폴더가 통째로 없으면 멈춤" 검사도 두 경우 모두에 적용된다.
+   */
+  #activate(ctx) {
+    if (fs.existsSync(ctx.localRoot)) ctx.blocked = false; // 없어졌던 폴더가 돌아왔으면 다시 돈다
+    const { id, name, state } = ctx;
     if (!fs.existsSync(ctx.localRoot)) {
       if (Object.keys(state.files).length === 0) {
         fs.mkdirSync(ctx.localRoot, { recursive: true });
@@ -270,10 +386,14 @@ export class SyncEngine {
         return;
       }
     }
-    saveState(stateFile, state);
+    saveState(ctx.stateFile, state);
+    if (this.#paused(ctx)) {
+      this.log(`[${name}] 연결(동기화 중지 상태): ${ctx.localRoot}`);
+      return;
+    }
     this.log(`[${name}] 연결: ${ctx.localRoot} (cursor ${state.cursor}, 기준 ${Object.keys(state.files).length}개)`);
 
-    if (this.watch) {
+    if (this.watch && !ctx.watcher) {
       ctx.watcher = startWatcher(ctx.localRoot, {
         onDirty: (rel) => this.#enqueueReconcile(ctx, rel),
         onDirRemoved: (rel) => {
@@ -287,6 +407,17 @@ export class SyncEngine {
     this.queue.enqueue(`scan:${id}`, () => this.#fullScan(ctx));
   }
 
+  /** 폴더의 감시를 멈추고 기다리는 작업을 버린다 (동기화 중지). 상태 파일과 커서는 그대로 둔다. */
+  async #deactivate(ctx) {
+    const watcher = ctx.watcher;
+    ctx.watcher = null;
+    this.queue.drop((key) => key === `scan:${ctx.id}` || key === `poll:${ctx.id}` || key.startsWith(`file:${ctx.id}:`));
+    // 받아 둔 서버 변경은 버린다. 커서를 올리지 않았으므로 다시 시작할 때 같은 변경을 다시 받는다.
+    ctx.remote.clear();
+    ctx.absentSince.clear();
+    if (watcher) await watcher.close();
+  }
+
   async #detach(ctx) {
     this.folders.delete(ctx.id);
     if (ctx.watcher) await ctx.watcher.close();
@@ -294,7 +425,7 @@ export class SyncEngine {
   }
 
   #alive(ctx) {
-    return !this.stopped && !ctx.blocked && this.folders.get(ctx.id) === ctx;
+    return !this.stopped && !ctx.blocked && !this.#paused(ctx) && this.folders.get(ctx.id) === ctx;
   }
 
   // ───────── 전체 점검·폴링 ─────────

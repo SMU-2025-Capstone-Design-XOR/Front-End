@@ -2,7 +2,10 @@
 // 폴더별 상태 파일 읽기·쓰기와 기기 ID 보관
 //
 // 상태 파일: {stateDir}/{userId}-{folderId}.json
-//   { localRoot, cursor, files: { "경로": { fileId, baseVersion, baseHash, size, mtimeMs } } }
+//   { localRoot, cursor, files: { "경로": { fileId, baseVersion, baseHash, size, mtimeMs } }, folderName?, paused? }
+//   folderName  이 상태가 어느 폴더의 것인지 (위치를 다시 지정하면 localRoot의 마지막 요소가 폴더 이름과 달라질 수 있다)
+//   paused      사용자가 이 폴더의 동기화를 멈춰 두었는가 (앱을 껐다 켜도 유지)
+// 사용자별 설정: {stateDir}/{userId}-settings.json  { pausedAll }  — 전체 동기화 중지
 // baseVersion·baseHash는 "이 기기가 서버와 마지막으로 일치했던 상태"다.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -32,6 +35,8 @@ export function loadState(file) {
       localRoot: data.localRoot,
       cursor: Number.isFinite(data.cursor) ? data.cursor : 0,
       files: data.files && typeof data.files === 'object' ? data.files : {},
+      ...(typeof data.folderName === 'string' ? { folderName: data.folderName } : {}),
+      ...(data.paused === true ? { paused: true } : {}),
     };
   } catch {
     try { fs.renameSync(file, `${file}.corrupt-${Date.now()}`); } catch { /* 보관 실패는 무시 */ }
@@ -49,6 +54,24 @@ export function saveState(file, state) {
 
 export function removeState(file) {
   try { fs.unlinkSync(file); } catch (err) { if (err.code !== 'ENOENT') throw err; }
+}
+
+export function settingsFilePath(stateDir, userId) {
+  return path.join(stateDir, `${userId}-settings.json`);
+}
+
+/** 사용자별 설정을 읽는다. 없거나 깨졌으면 기본값. */
+export function loadSettings(file) {
+  try {
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return { pausedAll: data?.pausedAll === true };
+  } catch {
+    return { pausedAll: false };
+  }
+}
+
+export function saveSettings(file, settings) {
+  saveState(file, settings);
 }
 
 /** 기기 ID: 첫 실행 때 만든 UUID를 {dir}/device-id에 저장해 두고 계속 쓴다. */
