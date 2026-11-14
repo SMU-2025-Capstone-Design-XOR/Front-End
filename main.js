@@ -190,7 +190,7 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('sync:start', (_e, session) => startSyncEngine(session));
   ipcMain.handle('sync:stop', () => stopSyncEngine());
-  // 이 기기에서 각 폴더가 놓인 위치 [{ id, name, localRoot, blocked }]
+  // 이 기기에서 각 폴더가 놓인 위치 [{ id, name, localRoot, blocked, paused, registeredElsewhere }]
   // registeredElsewhere: 기본 위치(~/XOR/{사용자명}/{폴더 이름})에 놓인 폴더 = 다른 기기에서 등록한 폴더
   ipcMain.handle('sync:folders', () => {
     if (!syncEngine || !syncSession) return [];
@@ -206,6 +206,16 @@ app.whenReady().then(() => {
     if (!syncEngine) return { ok: false, status: 0, message: '동기화 엔진이 시작되지 않았습니다. 다시 로그인해 주세요.' };
     return syncEngine.registerFolder(folderPath);
   });
+  // 동기화 중지·다시 시작 (이 기기에만 해당, 앱을 껐다 켜도 유지) → 바뀌었으면 true
+  ipcMain.handle('sync:pause-folder', (_e, folderId) => (syncEngine ? syncEngine.pauseFolder(folderId) : false));
+  ipcMain.handle('sync:resume-folder', (_e, folderId) => (syncEngine ? syncEngine.resumeFolder(folderId) : false));
+  ipcMain.handle('sync:pause-all', () => (syncEngine ? syncEngine.pauseAll() : false));
+  ipcMain.handle('sync:resume-all', () => (syncEngine ? syncEngine.resumeAll() : false));
+  // 로컬 폴더가 없어져 멈춘 폴더에 새 위치를 지정한다 → { ok, localRoot } | { ok: false, message }
+  ipcMain.handle('sync:relocate-folder', (_e, folderId, newRoot) => {
+    if (!syncEngine) return { ok: false, message: '동기화 엔진이 시작되지 않았습니다. 다시 로그인해 주세요.' };
+    return syncEngine.relocateFolder(folderId, newRoot);
+  });
   ipcMain.handle('sync:remove-folder', async (_e, folderId) => {
     if (syncEngine) await syncEngine.removeFolder(folderId);
     return true;
@@ -215,10 +225,10 @@ app.whenReady().then(() => {
 
 
   // 폴더 선택 다이얼로그 오픈
-  ipcMain.handle('open-folder-dialog', async (event) => {
+  ipcMain.handle('open-folder-dialog', async (event, title) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     const { canceled, filePaths } = await dialog.showOpenDialog(win, {
-      title: '동기화할 폴더 선택',
+      title: title || '동기화할 폴더 선택',
       properties: ['openDirectory']
     });
     return canceled ? null : filePaths[0];
