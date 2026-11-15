@@ -105,7 +105,7 @@ function setup(t) {
       api: server.api(), userId: USER, username: 'me',
       stateDir: path.join(dir, 'state'), xorRoot: path.join(dir, 'XOR'),
       trash: async (abs) => { trashed.push(abs); fs.rmSync(abs, { force: true }); },
-      watch: false, pollIntervalMs: 3600000, deleteDelayMs: 5, retryBaseMs: 5,
+      watch: false, pollIntervalMs: 3600000, deleteDelayMs: 5, retryBaseMs: 5, recoverDelayMs: 20,
     });
     engines.push(engine);
     return engine;
@@ -289,6 +289,49 @@ test('위치 다시 지정: 새 위치에 없는 파일은 내려받고, 같은 
   assert.equal(engine.folderList()[0].blocked, false);
   assert.equal(engine.folderList()[0].localRoot, path.resolve(newRoot));
   assert.deepEqual(server.calls.delete, []);
+});
+
+test('실행 중에 폴더가 통째로 없어지면 멈추고 삭제를 전파하지 않는다. 내용이 든 채로 돌아오면 스스로 이어 간다', async (t) => {
+  const { dir, server, make } = setup(t);
+  const root = path.join(dir, '과제');
+  write(root, 'a.txt', 'a1');
+  write(root, 'sub/b.txt', 'b1');
+  const engine = make();
+  engine.start();
+  await engine.registerFolder(root);
+  await settle(engine);
+  const folderId = server.folders[0].id;
+
+  // 앱이 켜진 채로 폴더를 통째로 지웠다. 그 뒤 다른 기기의 변경이 들어온다.
+  fs.rmSync(root, { recursive: true, force: true });
+  server.put(folderId, 'c.txt', 'c1 다른 기기');
+  await settle(engine);
+  assert.equal(engine.folderList()[0].blocked, true);
+  assert.equal(engine.getStatus().blocked, 1);
+  assert.deepEqual(server.calls.delete, [], '폴더가 없어진 것을 파일 삭제로 전파하지 않는다');
+  assert.deepEqual(server.live(folderId), ['a.txt', 'c.txt', 'sub/b.txt']);
+  assert.equal(fs.existsSync(root), false, '멈춘 동안 폴더를 다시 만들거나 내려받지 않는다');
+
+  // 같은 자리에 빈 폴더만 만들면 이어 가지 않는다 (이어 가면 전부 삭제로 전파된다)
+  fs.mkdirSync(root, { recursive: true });
+  await settle(engine);
+  await new Promise((r) => setTimeout(r, 40));
+  await settle(engine);
+  assert.equal(engine.folderList()[0].blocked, true);
+  assert.deepEqual(server.calls.delete, []);
+
+  // 휴지통에서 복원한 것처럼 내용이 든 채로 돌아오면, 잠시 뒤의 확인에서 스스로 이어 간다
+  write(root, 'a.txt', 'a1');
+  write(root, 'sub/b.txt', 'b1');
+  await settle(engine);
+  assert.equal(engine.folderList()[0].blocked, true, '돌아온 것을 처음 본 확인에서는 아직 기다린다');
+  await new Promise((r) => setTimeout(r, 40));
+  await settle(engine);
+  assert.equal(engine.folderList()[0].blocked, false);
+  assert.equal(engine.getStatus().blocked, 0);
+  assert.deepEqual(server.calls.delete, []);
+  assert.equal(read(root, 'c.txt'), 'c1 다른 기기', '멈춘 동안의 다른 기기 변경을 받는다');
+  assert.deepEqual(server.live(folderId), ['a.txt', 'c.txt', 'sub/b.txt']);
 });
 
 test('getStatus: 기다리는 파일 수와 경로를 폴더별로 센다', async (t) => {

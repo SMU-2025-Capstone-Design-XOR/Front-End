@@ -64,6 +64,7 @@ export class SyncEngine {
    *   emit(channel, payload)  화면 알림
    *   pollIntervalMs  폴링 주기 (기본 15초)
    *   deleteDelayMs   파일이 없어진 것을 삭제로 인정하기까지 기다리는 시간 (기본 2초)
+   *   recoverDelayMs  없어졌던 폴더가 돌아온 것을 본 뒤 다시 이어 가기까지 기다리는 시간 (기본 5초)
    *   watch           false면 감시하지 않는다(시험용)
    *   log(message)
    */
@@ -77,6 +78,8 @@ export class SyncEngine {
     this.emit = opts.emit || (() => {});
     this.pollIntervalMs = opts.pollIntervalMs ?? 15000;
     this.deleteDelayMs = opts.deleteDelayMs ?? 2000;
+    // 없어졌던 폴더가 돌아온 뒤 다시 이어 가기까지 기다리는 시간 (휴지통에서 복원하는 중일 수 있다)
+    this.recoverDelayMs = opts.recoverDelayMs ?? 5000;
     this.watch = opts.watch !== false;
     this.log = opts.log || (() => {});
 
@@ -338,7 +341,10 @@ export class SyncEngine {
         this.emit('sync-folder-removed', { folderId: ctx.id });
       }
     }
-    for (const ctx of this.folders.values()) this.#enqueuePoll(ctx);
+    for (const ctx of this.folders.values()) {
+      this.#maybeRecover(ctx);
+      this.#enqueuePoll(ctx);
+    }
   }
 
   #attach(folder, chosenRoot) {
@@ -407,6 +413,42 @@ export class SyncEngine {
       });
     }
     this.queue.enqueue(`scan:${id}`, () => this.#fullScan(ctx));
+  }
+
+  /** 기준은 있는데 동기화 폴더 자체가 없는가 (통째로 지워짐·옮겨짐·드라이브 분리) */
+  #rootGone(ctx) {
+    return Object.keys(ctx.state.files).length > 0 && !fs.existsSync(ctx.localRoot);
+  }
+
+  /**
+   * 실행 중에 동기화 폴더가 통째로 없어졌다. 안의 파일을 "삭제"로 전파하지 않고 이 폴더만 멈춘다.
+   * (앱이 꺼져 있던 동안 없어진 경우와 같은 처리. 폴더 안의 파일·하위 폴더를 지우는 것은 평소대로 전파된다)
+   */
+  async #block(ctx) {
+    if (ctx.blocked) return;
+    ctx.blocked = true;
+    ctx.rootSeenAt = null;
+    this.log(`[${ctx.name}] 로컬 폴더가 없어졌습니다: ${ctx.localRoot} → 삭제를 전파하지 않고 이 폴더의 동기화를 멈춥니다`);
+    await this.#deactivate(ctx);
+    this.#setStatus({ state: 'error', folderId: ctx.id, message: `로컬 폴더를 찾을 수 없습니다: ${ctx.localRoot}` });
+  }
+
+  /**
+   * 멈춘(blocked) 폴더가 원래 자리에 내용이 든 채로 돌아왔으면 다시 이어 간다 (휴지통에서 복원, 드라이브 다시 연결).
+   * 빈 폴더는 이어 가지 않는다: 기준과 비교하면 전부 "삭제"가 되기 때문이다.
+   * 복원하는 도중일 수 있으므로 돌아온 것을 처음 본 뒤 recoverDelayMs가 지난 다음 확인 때 이어 간다.
+   */
+  #maybeRecover(ctx) {
+    if (!ctx.blocked || this.#paused(ctx)) return;
+    let entries = [];
+    try { entries = fs.readdirSync(ctx.localRoot); } catch { /* 여전히 없음 */ }
+    if (entries.length === 0) { ctx.rootSeenAt = null; return; }
+    if (!ctx.rootSeenAt) { ctx.rootSeenAt = Date.now(); return; }
+    if (Date.now() - ctx.rootSeenAt < this.recoverDelayMs) return;
+    ctx.rootSeenAt = null;
+    this.log(`[${ctx.name}] 로컬 폴더가 돌아왔습니다: ${ctx.localRoot} → 동기화를 이어 갑니다`);
+    this.#activate(ctx);
+    this.emit('sync:status', this.status);
   }
 
   /** 폴더의 감시를 멈추고 기다리는 작업을 버린다 (동기화 중지). 상태 파일과 커서는 그대로 둔다. */
@@ -528,6 +570,8 @@ export class SyncEngine {
         this.#enqueueReconcile(ctx, rel, 3000);
       }
     }
+    // 처리 도중 폴더가 멈췄으면(동기화 중지, 폴더 없어짐) 변경을 다 반영한 것이 아니다. 커서를 올리지 않는다.
+    if (!this.#alive(ctx)) return;
     // 반영하지 못한 변경이 있으면 커서를 그대로 둔다. 다음 폴링이 같은 변경을 다시 받아도 결과는 같다.
     if (allApplied && fetched.cursor !== ctx.state.cursor) {
       ctx.state.cursor = fetched.cursor;
@@ -541,6 +585,8 @@ export class SyncEngine {
   async reconcile(ctx, rel) {
     for (let round = 0; round < 6; round++) {
       if (!this.#alive(ctx)) return;
+      // 폴더가 통째로 없어졌으면 파일 하나하나를 "삭제"로 보지 않고 폴더를 멈춘다
+      if (this.#rootGone(ctx)) { await this.#block(ctx); return; }
       const abs = path.join(ctx.localRoot, rel);
       const base = ctx.state.files[rel] ?? null;
 
