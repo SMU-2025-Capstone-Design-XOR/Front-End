@@ -11,15 +11,20 @@ const fs = window.require('fs');
 const crypto = window.require('crypto');
 const { Buffer } = window.require('buffer');
 
-/** 화면에 그대로 보여 줄 수 있는 문구를 가진 오류 */
-export class RestoreError extends Error {}
+/** 화면에 그대로 보여 줄 수 있는 문구를 가진 오류 (exists = 그 자리에 이미 파일이 있어서 쓰지 않음) */
+export class RestoreError extends Error {
+  constructor(message, { exists = false } = {}) {
+    super(message);
+    this.exists = exists;
+  }
+}
 
 async function localRootOf(folderId) {
   const folders = await ipcRenderer.invoke('sync:folders');
   const folder = folders.find((f) => Number(f.id) === Number(folderId));
   if (!folder) throw new RestoreError('이 PC에 아직 연결되지 않은 폴더입니다. 잠시 뒤 다시 시도해 주세요.');
   if (folder.blocked || !fs.existsSync(folder.localRoot)) {
-    throw new RestoreError(`이 PC에서 폴더를 찾을 수 없습니다: ${folder.localRoot}`);
+    throw new RestoreError(`이 PC에서 폴더를 찾을 수 없어 동기화가 멈춰 있습니다. 홈에서 폴더의 위치를 다시 지정한 뒤(또는 폴더를 되돌려 놓은 뒤) 되살려 주세요. (${folder.localRoot})`);
   }
   return folder.localRoot;
 }
@@ -34,7 +39,7 @@ export async function restoreToFolder({ folderId, fileId, version, relativePath,
   const localRoot = await localRootOf(folderId);
   const dest = path.join(localRoot, ...relativePath.split('/'));
   if (mustNotExist && fs.existsSync(dest)) {
-    throw new RestoreError('같은 이름의 파일이 이 폴더에 이미 있습니다. 곧 동기화되어 목록에 나타납니다.');
+    throw new RestoreError('같은 이름의 파일이 이 폴더에 이미 있습니다. 곧 동기화되어 목록에 나타납니다.', { exists: true });
   }
   const { blob } = await downloadFileVersion(folderId, fileId, version);
   const bytes = Buffer.from(await blob.arrayBuffer());

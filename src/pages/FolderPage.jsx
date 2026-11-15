@@ -283,6 +283,56 @@ export default function FolderPage() {
     }
   };
 
+  // 삭제된 파일이 들어 있던 하위 폴더들 (위 단계 폴더 포함): 폴더 단위로 되살릴 수 있게 한다
+  const deletedDirs = useMemo(() => {
+    const count = new Map();
+    for (const f of deleted) {
+      const segs = f.relativePath.split('/').slice(0, -1);
+      for (let i = 1; i <= segs.length; i++) {
+        const dir = segs.slice(0, i).join('/');
+        count.set(dir, (count.get(dir) || 0) + 1);
+      }
+    }
+    return [...count].map(([dir, n]) => ({ dir, count: n })).sort((a, b) => a.dir.localeCompare(b.dir, 'ko'));
+  }, [deleted]);
+
+  // 여러 파일을 한 번에 되살린다 (폴더 단위, 전체). 하위 폴더가 없으면 만들어 그 안에 넣는다.
+  const handleReviveMany = async (targets, what) => {
+    const ok = await dialog.confirm({
+      title: `${what} 되살릴까요?`,
+      message: `삭제된 파일 ${targets.length}개가 원래 자리에 다시 생기고 다른 기기에도 내려갑니다. 같은 이름의 파일이 이미 있으면 그 파일은 건너뜁니다.`,
+      confirmLabel: '되살리기',
+    });
+    if (!ok) return;
+    setReviving('many');
+    let done = 0;
+    let skipped = 0;
+    let failed = 0;
+    let lastError = '';
+    try {
+      for (const file of targets) {
+        try {
+          await restoreToFolder({ folderId: id, fileId: file.fileId, version: file.version, relativePath: file.relativePath, mustNotExist: true });
+          done++;
+        } catch (err) {
+          if (err instanceof RestoreError && err.exists) skipped++;
+          else {
+            failed++;
+            lastError = err instanceof RestoreError ? err.message : (err.body?.message || err.message);
+            console.error('되살리기 실패:', file.relativePath, err);
+            if (err instanceof RestoreError) break; // 폴더를 찾을 수 없는 경우 등: 나머지도 같은 이유로 실패한다
+          }
+        }
+      }
+    } finally {
+      setReviving(null);
+    }
+    const note = await pausedNote(id);
+    if (failed > 0) toast.error('일부를 되살리지 못했습니다', `${done}개를 되살렸습니다. ${lastError}`);
+    else if (skipped > 0) toast.warn(`${done}개를 되살렸습니다`, `같은 이름의 파일이 이미 있는 ${skipped}개는 건너뛰었습니다.${note}`);
+    else toast.success(`${done}개를 되살렸습니다`, note ? `원래 자리에 다시 생겼습니다.${note}` : '원래 자리에 다시 생겼고, 곧 다른 기기에도 내려갑니다.');
+  };
+
   // 이 폴더(또는 전체)의 동기화가 멈춰 있는가: 머리 옆에 표시한다
   const [pausedHere, setPausedHere] = useState(false);
   useEffect(() => {
@@ -445,6 +495,13 @@ export default function FolderPage() {
               <Icon name="info" size={18} color="#1D49B5" />
               <p>삭제한 파일의 버전 기록은 서버에 남아 있습니다. 되살리면 이 폴더에 다시 생기고 다른 기기에도 내려갑니다. 이 PC에서 지운 파일은 휴지통에도 있습니다.</p>
             </div>
+            {deleted.length > 1 && (
+              <div className="deleted-tools">
+                <button type="button" className="btn btn--sm" disabled={reviving !== null} onClick={() => handleReviveMany(deleted, `삭제된 파일 ${deleted.length}개를 모두`)}>
+                  모두 되살리기
+                </button>
+              </div>
+            )}
             <div className="table-card">
               <table className="table">
                 <thead>
@@ -457,6 +514,30 @@ export default function FolderPage() {
                   </tr>
                 </thead>
                 <tbody>
+                  {deletedDirs.map(({ dir, count }) => (
+                    <tr key={`dir:${dir}`}>
+                      <td>
+                        <div className="name-cell">
+                          <Icon name="folder" size={22} color="#566070" />
+                          <div style={{ minWidth: 0 }}>
+                            <div className="name">{dir}</div>
+                            <div className="mark mark--where">삭제된 파일 {count}개가 있던 폴더</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td /><td /><td />
+                      <td className="actions">
+                        <div className="row-actions">
+                          <button
+                            type="button" className="btn btn--primary btn--sm" style={{ padding: '0 14px' }} disabled={reviving !== null}
+                            onClick={() => handleReviveMany(deleted.filter((f) => f.relativePath.startsWith(`${dir}/`)), `${dir} 폴더의 파일 ${count}개를`)}
+                          >
+                            폴더 되살리기
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
                   {deleted.map((file) => {
                     const name = baseOf(file.relativePath);
                     const dir = dirOf(file.relativePath);
@@ -480,7 +561,7 @@ export default function FolderPage() {
                             <button type="button" className="btn btn--sm" onClick={() => openVersions(file, true)}>버전 기록</button>
                             <button
                               type="button" className="btn btn--primary btn--sm" style={{ padding: '0 14px' }}
-                              disabled={reviving === file.fileId} onClick={() => handleRevive(file)}
+                              disabled={reviving !== null} onClick={() => handleRevive(file)}
                             >
                               되살리기
                             </button>

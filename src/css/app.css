@@ -382,3 +382,6 @@ button.name-cell {
 /* 폴더 화면 맨 위: 뒤로 버튼과 현재 위치 */
 .folder-nav { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .folder-nav__back { gap: 6px; padding: 0 12px 0 10px; }
+
+/* 삭제된 파일 탭: 표 위의 도구 줄 */
+.deleted-tools { display: flex; justify-content: flex-end; }
