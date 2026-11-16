@@ -140,7 +140,8 @@ dist
 dist/
 out/
 build/
-
+release-builds/
+dist/renderer.bundle.js.map
 
 # Mac 시스템 파일 (불필요)
 .DS_Store
