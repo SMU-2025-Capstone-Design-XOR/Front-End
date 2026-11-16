@@ -334,6 +334,26 @@ test('실행 중에 폴더가 통째로 없어지면 멈추고 삭제를 전파�
   assert.deepEqual(server.live(folderId), ['a.txt', 'c.txt', 'sub/b.txt']);
 });
 
+test('실행 중에 폴더가 통째로 없어지면 감시 이벤트나 다른 기기의 변경이 없어도 다음 확인에서 멈춘다', async (t) => {
+  const { dir, server, make } = setup(t);
+  const root = path.join(dir, '과제');
+  write(root, 'a.txt', 'a1');
+  const engine = make();
+  engine.start();
+  await engine.registerFolder(root);
+  await settle(engine);
+  const folderId = server.folders[0].id;
+
+  // macOS의 Finder처럼 폴더를 다른 곳으로 옮겼다(휴지통). 감시 이벤트도 서버 변경도 없다.
+  fs.renameSync(root, path.join(dir, '휴지통-과제'));
+  await settle(engine);
+  assert.equal(engine.folderList()[0].blocked, true);
+  assert.equal(engine.folderList()[0].blockedReason, 'missing');
+  assert.equal(engine.getStatus().blocked, 1);
+  assert.deepEqual(server.calls.delete, [], '폴더가 없어진 것을 파일 삭제로 전파하지 않는다');
+  assert.deepEqual(server.live(folderId), ['a.txt']);
+});
+
 test('앱이 꺼진 동안 폴더가 비워졌으면(같은 자리에 빈 폴더만 다시 만든 경우 포함) 멈추고 삭제를 전파하지 않는다', async (t) => {
   const { dir, server, make } = setup(t);
   const root = path.join(dir, '실습');

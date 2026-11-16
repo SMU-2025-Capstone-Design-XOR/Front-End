@@ -347,6 +347,9 @@ export class SyncEngine {
       }
     }
     for (const ctx of this.folders.values()) {
+      // 폴더가 통째로 없어진 것을 감시 이벤트 없이도 알아챈다.
+      // (macOS에서 Finder로 폴더를 휴지통에 넣으면 폴더 이름만 바뀌어 감시 이벤트가 오지 않는다)
+      if (this.#alive(ctx) && this.#rootGone(ctx)) { await this.#block(ctx); continue; }
       this.#maybeRecover(ctx);
       this.#enqueuePoll(ctx);
     }
