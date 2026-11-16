@@ -157,10 +157,14 @@ export class SyncEngine {
     this.#enqueueFolderRefresh();
   }
 
-  /** 이 기기에서 각 폴더가 놓인 위치 [{ id, name, localRoot, blocked, paused }] (paused = 이 폴더를 따로 멈춰 둠) */
+  /**
+   * 이 기기에서 각 폴더가 놓인 위치 [{ id, name, localRoot, blocked, blockedReason, paused }]
+   * blockedReason  'missing'(폴더가 없음) | 'empty'(폴더는 있는데 완전히 비어 있음) | null
+   * paused         이 폴더를 따로 멈춰 둠
+   */
   folderList() {
     return [...this.folders.values()].map((ctx) => ({
-      id: ctx.id, name: ctx.name, localRoot: ctx.localRoot, blocked: ctx.blocked, paused: ctx.paused,
+      id: ctx.id, name: ctx.name, localRoot: ctx.localRoot, blocked: ctx.blocked, blockedReason: ctx.blocked ? (ctx.blockedReason ?? 'missing') : null, paused: ctx.paused,
     }));
   }
 
@@ -245,6 +249,7 @@ export class SyncEngine {
     ctx.state = state;
     ctx.localRoot = target;
     ctx.blocked = false;
+    ctx.blockedReason = null;
     ctx.remote.clear();
     ctx.absentSince.clear();
     this.log(`[${ctx.name}] 위치 다시 지정: ${target} (서버 내용과 처음부터 다시 맞춥니다)`);
@@ -381,19 +386,24 @@ export class SyncEngine {
    * 그래서 "폴더가 통째로 없으면 멈춤" 검사도 두 경우 모두에 적용된다.
    */
   #activate(ctx) {
-    if (fs.existsSync(ctx.localRoot)) ctx.blocked = false; // 없어졌던 폴더가 돌아왔으면 다시 돈다
     const { id, name, state } = ctx;
-    if (!fs.existsSync(ctx.localRoot)) {
-      if (Object.keys(state.files).length === 0) {
-        fs.mkdirSync(ctx.localRoot, { recursive: true });
-      } else {
-        // 기준은 있는데 폴더가 통째로 없다(이동·드라이브 분리 등). 이대로 훑으면 전부 "삭제"로 서버에 전파되므로 멈춘다.
-        ctx.blocked = true;
-        this.log(`[${name}] 로컬 폴더가 없습니다: ${ctx.localRoot} → 이 폴더는 동기화하지 않습니다`);
-        this.#setStatus({ state: 'error', folderId: id, message: `로컬 폴더를 찾을 수 없습니다: ${ctx.localRoot}` });
-        return;
-      }
+    const hasBase = Object.keys(state.files).length > 0;
+    const exists = fs.existsSync(ctx.localRoot);
+    if (!exists && !hasBase) fs.mkdirSync(ctx.localRoot, { recursive: true });
+    // 기준은 있는데 폴더가 통째로 없거나(이동·드라이브 분리 등) 완전히 비어 있다(같은 자리에 빈 폴더만 다시 만든 경우).
+    // 이대로 훑으면 전부 "삭제"로 서버에 전파되므로 멈춘다. 실행 중에 사용자가 안의 파일을 지우는 것은 여기로 오지 않는다.
+    const reason = !hasBase ? null : !exists ? 'missing' : !this.#rootHasContent(ctx) ? 'empty' : null;
+    if (reason) {
+      ctx.blocked = true;
+      ctx.blockedReason = reason;
+      this.log(reason === 'missing'
+        ? `[${name}] 로컬 폴더가 없습니다: ${ctx.localRoot} → 이 폴더는 동기화하지 않습니다`
+        : `[${name}] 로컬 폴더가 비어 있습니다: ${ctx.localRoot} → 삭제로 전파하지 않도록 이 폴더는 동기화하지 않습니다`);
+      this.#setStatus({ state: 'error', folderId: id, message: reason === 'missing' ? `로컬 폴더를 찾을 수 없습니다: ${ctx.localRoot}` : `로컬 폴더가 비어 있습니다: ${ctx.localRoot}` });
+      return;
     }
+    ctx.blocked = false; // 없어졌던 폴더가 돌아왔으면 다시 돈다
+    ctx.blockedReason = null;
     saveState(ctx.stateFile, state);
     if (this.#paused(ctx)) {
       this.log(`[${name}] 연결(동기화 중지 상태): ${ctx.localRoot}`);
@@ -415,6 +425,15 @@ export class SyncEngine {
     this.queue.enqueue(`scan:${id}`, () => this.#fullScan(ctx));
   }
 
+  /** 동기화 폴더에 (무시 목록이 아닌) 항목이 하나라도 있는가. 폴더가 없으면 false */
+  #rootHasContent(ctx) {
+    try {
+      return fs.readdirSync(ctx.localRoot).some((entry) => !isIgnored(entry));
+    } catch {
+      return false;
+    }
+  }
+
   /** 기준은 있는데 동기화 폴더 자체가 없는가 (통째로 지워짐·옮겨짐·드라이브 분리) */
   #rootGone(ctx) {
     return Object.keys(ctx.state.files).length > 0 && !fs.existsSync(ctx.localRoot);
@@ -427,6 +446,7 @@ export class SyncEngine {
   async #block(ctx) {
     if (ctx.blocked) return;
     ctx.blocked = true;
+    ctx.blockedReason = 'missing';
     ctx.rootSeenAt = null;
     this.log(`[${ctx.name}] 로컬 폴더가 없어졌습니다: ${ctx.localRoot} → 삭제를 전파하지 않고 이 폴더의 동기화를 멈춥니다`);
     await this.#deactivate(ctx);
@@ -440,9 +460,13 @@ export class SyncEngine {
    */
   #maybeRecover(ctx) {
     if (!ctx.blocked || this.#paused(ctx)) return;
-    let entries = [];
-    try { entries = fs.readdirSync(ctx.localRoot); } catch { /* 여전히 없음 */ }
-    if (entries.length === 0) { ctx.rootSeenAt = null; return; }
+    if (!this.#rootHasContent(ctx)) {
+      // 여전히 없거나 비어 있다. 사유만 지금 상태에 맞춘다 (없던 자리에 빈 폴더가 생긴 경우)
+      ctx.rootSeenAt = null;
+      const reason = fs.existsSync(ctx.localRoot) ? 'empty' : 'missing';
+      if (ctx.blockedReason !== reason) { ctx.blockedReason = reason; this.emit('sync:status', this.status); }
+      return;
+    }
     if (!ctx.rootSeenAt) { ctx.rootSeenAt = Date.now(); return; }
     if (Date.now() - ctx.rootSeenAt < this.recoverDelayMs) return;
     ctx.rootSeenAt = null;

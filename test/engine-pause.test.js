@@ -334,6 +334,55 @@ test('실행 중에 폴더가 통째로 없어지면 멈추고 삭제를 전파�
   assert.deepEqual(server.live(folderId), ['a.txt', 'c.txt', 'sub/b.txt']);
 });
 
+test('앱이 꺼진 동안 폴더가 비워졌으면(같은 자리에 빈 폴더만 다시 만든 경우 포함) 멈추고 삭제를 전파하지 않는다', async (t) => {
+  const { dir, server, make } = setup(t);
+  const root = path.join(dir, '실습');
+  write(root, 'a.txt', 'a1');
+  write(root, 'sub/b.txt', 'b1');
+  let engine = make();
+  engine.start();
+  await engine.registerFolder(root);
+  await settle(engine);
+  const folderId = server.folders[0].id;
+  await engine.stop();
+
+  // 앱이 꺼진 동안 폴더를 지우고 같은 자리에 빈 폴더만 다시 만들었다 (무시되는 파일만 있어도 빈 것으로 본다)
+  fs.rmSync(root, { recursive: true, force: true });
+  fs.mkdirSync(root, { recursive: true });
+  fs.writeFileSync(path.join(root, 'desktop.ini'), '');
+
+  engine = make();
+  engine.start();
+  await settle(engine);
+  assert.equal(engine.folderList()[0].blocked, true);
+  assert.equal(engine.folderList()[0].blockedReason, 'empty');
+  assert.deepEqual(server.calls.delete, [], '빈 폴더를 "전부 지움"으로 전파하지 않는다');
+  assert.deepEqual(server.live(folderId), ['a.txt', 'sub/b.txt']);
+
+  // 동기화 중지를 걸었다 풀어도 마찬가지로 멈춰 있다
+  await engine.pauseFolder(folderId);
+  engine.resumeFolder(folderId);
+  await settle(engine);
+  assert.equal(engine.folderList()[0].blocked, true);
+  assert.deepEqual(server.calls.delete, []);
+
+  // 같은 폴더로 위치를 다시 지정하면 서버의 파일을 전부 내려받는다
+  assert.equal(engine.relocateFolder(folderId, root).ok, true);
+  await settle(engine);
+  assert.equal(engine.folderList()[0].blocked, false);
+  assert.equal(engine.folderList()[0].blockedReason, null);
+  assert.equal(read(root, 'a.txt'), 'a1');
+  assert.equal(read(root, 'sub/b.txt'), 'b1');
+  assert.deepEqual(server.calls.delete, []);
+
+  // 그 뒤 앱이 켜진 상태에서 파일을 지우는 것은 평소대로 전파된다
+  fs.rmSync(path.join(root, 'a.txt'));
+  engine.pauseFolder(folderId).then(() => engine.resumeFolder(folderId)); // 감시 없이 도는 테스트라 전체 점검을 다시 시킨다
+  await new Promise((r) => setTimeout(r, 30));
+  await settle(engine);
+  assert.deepEqual(server.calls.delete, ['a.txt']);
+});
+
 test('getStatus: 기다리는 파일 수와 경로를 폴더별로 센다', async (t) => {
   const { make } = setup(t);
   const engine = make();

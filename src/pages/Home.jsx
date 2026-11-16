@@ -39,6 +39,7 @@ function toViewFolders(serverFolders, engineFolders) {
       createdAt: folder.createdAt,
       localPath: linked ? linked.localRoot : null,
       blocked: !!linked?.blocked,
+      blockedReason: linked?.blockedReason || null, // 'missing' | 'empty'
       paused: !!linked?.paused, // 사용자가 이 폴더의 동기화를 멈춰 둠
       registeredElsewhere: !!linked?.registeredElsewhere,
     };
@@ -242,7 +243,9 @@ export default function Home() {
           <div className="folder-row__body">
             <div className="folder-row__name">
               <h2>{folder.name}</h2>
-              <span className="badge badge--danger">동기화 중지 · 폴더를 찾을 수 없음</span>
+              <span className="badge badge--danger">
+                {folder.blockedReason === 'empty' ? '동기화 중지 · 폴더가 비어 있음' : '동기화 중지 · 폴더를 찾을 수 없음'}
+              </span>
             </div>
             <p className="folder-row__path">
               {folder.localPath} · 파일을 지운 것으로 처리하지 않도록 멈췄습니다
