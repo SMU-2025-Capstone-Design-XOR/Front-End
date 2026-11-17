@@ -31,15 +31,15 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/SMU-2025-Capstone-Design-XOR/Front-end.git"
+    "url": "git+https://github.com/SMU-2025-Capstone-Design-XOR/Front-End.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/SMU-2025-Capstone-Design-XOR/Front-end/issues"
+    "url": "https://github.com/SMU-2025-Capstone-Design-XOR/Front-End/issues"
   },
-  "homepage": "https://github.com/SMU-2025-Capstone-Design-XOR/Front-end#readme",
+  "homepage": "https://github.com/SMU-2025-Capstone-Design-XOR/Front-End#readme",
   "devDependencies": {
     "@babel/core": "^7.26.10",
     "@babel/preset-env": "^7.27.2",
