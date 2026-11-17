@@ -10,7 +10,10 @@
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
     "dist:win": "npm run build && electron-builder --win",
-    "test": "node --test \"test/*.test.js\""
+    "test": "node --test \"test/*.test.js\"",
+    "test:e2e:sync": "node test/e2e/sync.mjs",
+    "test:e2e:tray": "node test/e2e/tray-check.mjs",
+    "test:e2e:screens": "node test/e2e/capture.mjs"
   },
   "build": {
     "appId": "com.example.xor",

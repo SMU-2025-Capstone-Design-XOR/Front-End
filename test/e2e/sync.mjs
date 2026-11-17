@@ -1,8 +1,8 @@
-// scripts/e2e-sync.mjs
+// test/e2e/sync.mjs (11/18까지 scripts/e2e-sync.mjs)
 // 동기화 엔진 종단 시험: 한 프로세스에서 엔진 2개(기기 A, B)를 Electron 없이 돌린다.
 // 상태 디렉터리·로컬 폴더·기기 ID는 기기마다 따로 쓴다. 휴지통은 기기별 trash 디렉터리로 대신한다.
 //
-// 실행: BE를 local 프로필로 띄운 뒤   node scripts/e2e-sync.mjs [--word]
+// 실행: BE를 local 프로필로 띄운 뒤   npm run test:e2e:sync -- [--word]   (= node test/e2e/sync.mjs)
 //   XOR_API_BASE (기본 http://localhost:8080), XOR_E2E_POLL_MS (기본 3000), XOR_KEEP=1 이면 시험 폴더를 남긴다.
 //   --word : 실제 Word(COM)로 .docx를 두 번 저장하는 시나리오 3을 함께 돌린다 (Windows + Word 필요)
 import fs from 'node:fs';
@@ -12,10 +12,10 @@ import { randomBytes } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-import { createApi } from '../sync/api.js';
-import { SyncEngine } from '../sync/engine.js';
-import { loadOrCreateDeviceId, loadState, stateFilePath } from '../sync/state.js';
-import { scanFolder, hashFile, hashBuffer } from '../sync/scanner.js';
+import { createApi } from '../../sync/api.js';
+import { SyncEngine } from '../../sync/engine.js';
+import { loadOrCreateDeviceId, loadState, stateFilePath } from '../../sync/state.js';
+import { scanFolder, hashFile, hashBuffer } from '../../sync/scanner.js';
 
 const BASE = process.env.XOR_API_BASE || 'http://localhost:8080';
 const POLL_MS = Number(process.env.XOR_E2E_POLL_MS || 3000);
