@@ -9,7 +9,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 
 
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'; // Electron 메인 API
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, shell, Tray } from 'electron'; // Electron 메인 API
 import remoteMain from '@electron/remote/main/index.js'; // 렌더러 프로세스에서 메인 기능을 사용하기 위한 remote
 import path from 'path'; // 파일 경로 유틸리티
 import fs from 'fs'; // 파일 시스템 모듈
@@ -25,6 +25,21 @@ import { SyncEngine } from './sync/engine.js';
 if (process.env.XOR_USER_DATA) {
   app.setPath('userData', path.resolve(process.env.XOR_USER_DATA));
 }
+
+// 중복 실행 방지. 잠금은 userData 경로 기준이라 위의 XOR_USER_DATA를 먼저 적용해야
+// 개발용 두 인스턴스(userData가 서로 다름)가 함께 뜬다.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit(); // 이미 떠 있는 앱이 second-instance를 받아 자기 창을 보여 준다
+} else {
+  app.on('second-instance', () => showMainWindow());
+}
+
+// ▶️ 메인 창과 트레이 (창을 닫으면 숨기고 트레이에 남는다)
+let mainWindow = null;
+let tray = null;
+// 진짜 종료 중인지 (트레이 "종료", macOS Cmd+Q, OS 종료). false일 때만 메인 창 닫기를 숨기기로 바꾼다.
+let isQuitting = false;
 
 // ▶️ remote 기능 초기화 (렌더러에서 메인 API 접근 허용)
 remoteMain.initialize();
@@ -115,10 +130,59 @@ function createWindow() {
   remoteMain.enable(win.webContents); // 이 창에서 remote 사용 가능하게 설정
   win.loadFile(path.join(__dirname, 'index.html')); // React 앱이 번들된 index.html 로딩
 
-  // macOS에서는 창이 모두 닫혀도 앱이 종료되지 않으므로 다시 생성
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  // 닫기 = 숨기기. 동기화 엔진은 메인 프로세스에서 돌아서 창이 없어도 계속 돈다.
+  win.on('close', (event) => {
+    if (isQuitting) return;
+    event.preventDefault();
+    win.hide();
   });
+  // Windows: OS 종료·로그오프 때 닫기를 막으면 종료가 늦어지므로 그때는 진짜 종료로 본다
+  win.on('query-session-end', () => { isQuitting = true; });
+  win.on('session-end', () => { isQuitting = true; });
+  win.on('closed', () => { if (mainWindow === win) mainWindow = null; });
+
+  mainWindow = win;
+  return win;
+}
+
+// 메인 창을 보여 준다 (트레이 "열기", macOS Dock 클릭, 두 번째 실행). 창이 없으면 새로 만든다.
+function showMainWindow() {
+  if (!app.isReady()) return;
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow();
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function quitApp() {
+  isQuitting = true;
+  app.quit();
+}
+
+// 트레이 아이콘 파일: assets/tray/ (정식 아이콘이 정해지면 같은 이름으로 바꿔 넣으면 된다)
+function createTray() {
+  let icon;
+  if (process.platform === 'darwin') {
+    // macOS 메뉴바는 흑백 Template 이미지를 쓴다 (밝은·어두운 메뉴바에 맞춰 OS가 색을 바꿈). @2x는 자동으로 함께 읽힌다.
+    icon = nativeImage.createFromPath(path.join(__dirname, 'assets/tray/iconTemplate.png'));
+    icon.setTemplateImage(true);
+  } else {
+    // Windows 알림 영역은 .ico (여러 크기가 들어 있어 화면 배율에 맞는 것을 고른다)
+    icon = nativeImage.createFromPath(path.join(__dirname, 'assets/tray/icon.ico'));
+  }
+  tray = new Tray(icon);
+  tray.setToolTip('XOR');
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: '열기', click: () => showMainWindow() },
+    { type: 'separator' },
+    { label: '종료', click: () => quitApp() },
+  ]));
+  // Windows: 왼쪽 클릭 = 창 열기, 오른쪽 클릭 = 메뉴(setContextMenu가 처리).
+  // macOS는 메뉴바 관례대로 클릭하면 메뉴가 열리므로 click으로 창을 열지 않는다.
+  if (process.platform !== 'darwin') tray.on('click', () => showMainWindow());
 }
 
 
@@ -154,9 +218,14 @@ function createVersionWindow({ folderId, fileId, relativePath, folderName, delet
 
 // 앱 초기화 후
 app.whenReady().then(() => {
+  if (!gotSingleInstanceLock) return; // 두 번째 실행은 곧 종료된다
 
   createXorRoot();    // 루트 폴더 생성
   createWindow();     // 메인 창 생성
+  createTray();       // 트레이 아이콘 + 메뉴 ("열기", "종료")
+
+  // macOS: Dock 아이콘을 누르면 숨긴 창을 다시 보여 준다
+  app.on('activate', () => showMainWindow());
 
   // ▶️ 버전 기록 창 열기 { folderId, fileId, relativePath, folderName, deleted }
   ipcMain.on('open-version-window', (_e, target) => {
@@ -237,13 +306,15 @@ app.whenReady().then(() => {
 
 // 버전 메모는 서버에 저장한다 (PUT …/versions/{version}/note). 예전의 electron-store 'version-notes'는 쓰지 않는다.
 
-// 종료 전에 엔진을 멈춘다 (감시 해제)
-app.on('before-quit', () => { stopSyncEngine().catch(() => {}); });
-
-// 모든 창이 닫히면 macOS 외에는 앱 종료
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+// 진짜 종료 (트레이 "종료", macOS Cmd+Q·Dock "종료", OS 종료): 창 닫기를 막지 않게 하고 엔진을 멈춘다 (감시 해제)
+app.on('before-quit', () => {
+  isQuitting = true;
+  stopSyncEngine().catch(() => {});
 });
+
+// 창이 모두 닫혀도(버전 기록 창만 닫혀 메인 창이 숨은 상태 등) 두 OS 모두 종료하지 않고 트레이에 남는다.
+// 핸들러를 등록해 두기만 해도 Electron의 기본 동작(종료)이 꺼진다.
+app.on('window-all-closed', () => {});
 
 // 브라우저 창에 메시지를 전달하는 헬퍼 함수
 function broadcast(channel, data){
